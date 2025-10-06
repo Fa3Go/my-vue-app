@@ -63,8 +63,8 @@ class DataManager {
     if (this.dataInterval) {
       clearInterval(this.dataInterval)
     }
-    
-    // ThingSpeak 資料更新（1分鐘一次）
+
+    // ThingSpeak 資料更新（每30秒一次）
     this.dataInterval = setInterval(() => {
       this.updateAllData()
     }, this.updateInterval)

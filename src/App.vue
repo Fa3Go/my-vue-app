@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import SinglePhaseMonitor from './components/SinglePhaseMonitor.vue'
 import ThreePhaseMonitor from './components/ThreePhaseMonitor.vue'
 import RealTimeChart from './components/RealTimeChart.vue'
+import AIAgent from './components/AIAgent.vue'
 import { Monitor, Refresh, Setting, DataAnalysis, Download } from '@element-plus/icons-vue'
 import dataManager from './services/dataManager.js'
 
@@ -371,8 +372,8 @@ onMounted(async () => {
   // 初始化圖表數據（添加初始數據點，避免圖表為空）
   await initChartData()
 
-  // 設置定時更新（每1分鐘更新一次，與 ThingSpeak 配置一致）
-  dataInterval = setInterval(updateData, 60000)
+  // 設置定時更新（每30秒更新一次）
+  dataInterval = setInterval(updateData, 30000)
 })
 
 // 初始化圖表資料
@@ -955,6 +956,9 @@ onUnmounted(() => {
         </el-main>
       </el-container>
     </el-container>
+
+    <!-- AI 助手 -->
+    <AIAgent :current-data="systemStatus" />
   </div>
 </template>
 
