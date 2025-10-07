@@ -16,6 +16,11 @@ class DataManager {
     this.cache = new Map()
     this.cacheTTL = getConfig('cache.ttl')
 
+    // 當日碳排放增量快取
+    this.todayCarbonIncrement = 0
+    this.lastCarbonValue = null
+    this.todayStartCarbonValue = null
+
     // 初始化
     this.init()
   }
@@ -26,6 +31,8 @@ class DataManager {
       const isValid = validateConfig()
       if (isValid) {
         await this.checkThingSpeakConnection()
+        // 初始化當日碳排放基準值
+        await this.initTodayCarbonBaseline()
       } else {
         console.warn('ThingSpeak 配置無效，將使用模擬資料')
         this.isThingSpeakEnabled = false
@@ -34,6 +41,39 @@ class DataManager {
 
     // 啟動資料更新
     this.startDataUpdate()
+  }
+
+  // 初始化當日碳排放基準值（獲取今天00:00的碳排放值）
+  async initTodayCarbonBaseline() {
+    try {
+      // 獲取今天和昨天的每日平均碳排放
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
+
+      const startISO = yesterday.toISOString()
+      const endISO = now.toISOString()
+
+      const url = `https://api.thingspeak.com/channels/2521976/feeds.json?start=${startISO}&end=${endISO}&average=1440`
+
+      const response = await fetch(url)
+      const data = await response.json()
+
+      if (data.feeds && data.feeds.length >= 2) {
+        // 獲取昨天的碳排放值作為今天的基準
+        this.todayStartCarbonValue = parseFloat(data.feeds[data.feeds.length - 2].field7) || 0
+        this.lastCarbonValue = parseFloat(data.feeds[data.feeds.length - 1].field7) || 0
+        this.todayCarbonIncrement = Math.max(0, this.lastCarbonValue - this.todayStartCarbonValue)
+
+        console.log('✅ 初始化當日碳排放基準:', {
+          昨天碳排放: this.todayStartCarbonValue.toFixed(2) + ' kgCO₂e',
+          當前碳排放: this.lastCarbonValue.toFixed(2) + ' kgCO₂e',
+          今日增量: this.todayCarbonIncrement.toFixed(4) + ' kgCO₂e'
+        })
+      }
+    } catch (error) {
+      console.error('❌ 初始化當日碳排放基準失敗:', error)
+    }
   }
 
   // 檢查 ThingSpeak 連接狀態
@@ -126,9 +166,26 @@ class DataManager {
       console.log('獲取到的三相 ThingSpeak 數據:', threePhaseData)
 
       if (realTimeData) {
+        // 更新當日碳排放增量
+        const currentCarbon = realTimeData.carbonEmission || 0
+        if (this.todayStartCarbonValue !== null) {
+          this.todayCarbonIncrement = Math.max(0, currentCarbon - this.todayStartCarbonValue)
+        }
+
+        // 創建包含當日增量的數據副本（保留2位小數）
+        const singlePhaseDataWithIncrement = {
+          ...realTimeData,
+          carbonEmission: parseFloat(this.todayCarbonIncrement.toFixed(2))  // 使用當日增量替換累積值，保留2位小數
+        }
+
+        const systemStatusDataWithIncrement = {
+          ...realTimeData,
+          carbonEmission: parseFloat(this.todayCarbonIncrement.toFixed(2))  // 使用當日增量替換累積值，保留2位小數
+        }
+
         // 單相和系統狀態使用原本的數據
-        this.cacheData('singlePhase', realTimeData)
-        this.cacheData('systemStatus', realTimeData)
+        this.cacheData('singlePhase', singlePhaseDataWithIncrement)
+        this.cacheData('systemStatus', systemStatusDataWithIncrement)
 
         console.log('✅ 單相 ThingSpeak 數據已更新:', {
           電壓: realTimeData.voltage + 'V',
@@ -137,15 +194,22 @@ class DataManager {
           頻率: realTimeData.frequency + 'Hz',
           功率因子: realTimeData.powerFactor + ' pf',
           用電量: realTimeData.energy + 'kWh',
-          碳排放量: realTimeData.carbonEmission + 'kgCO2e'
+          碳排放累積: currentCarbon.toFixed(2) + ' kgCO₂e',
+          今日碳排放增量: this.todayCarbonIncrement.toFixed(4) + ' kgCO₂e'
         })
       } else {
         console.warn('⚠️ 未獲取到單相 ThingSpeak 數據')
       }
 
       if (threePhaseData) {
+        // 三相也使用當日碳排放增量（保留2位小數）
+        const threePhaseDataWithIncrement = {
+          ...threePhaseData,
+          carbonEmission: parseFloat(this.todayCarbonIncrement.toFixed(2))  // 使用當日增量替換累積值，保留2位小數
+        }
+
         // 三相使用新的 API 數據
-        this.cacheData('threePhase', threePhaseData)
+        this.cacheData('threePhase', threePhaseDataWithIncrement)
 
         console.log('✅ 三相 ThingSpeak 數據已更新:', {
           電壓: threePhaseData.voltage + 'V',
@@ -154,7 +218,7 @@ class DataManager {
           頻率: threePhaseData.frequency + 'Hz',
           功率因子: threePhaseData.powerFactor + ' pf',
           用電量: threePhaseData.energy + 'kWh',
-          碳排放量: threePhaseData.carbonEmission + 'kgCO2e'
+          今日碳排放增量: this.todayCarbonIncrement.toFixed(4) + ' kgCO₂e'
         })
       } else {
         console.warn('⚠️ 未獲取到三相 ThingSpeak 數據')

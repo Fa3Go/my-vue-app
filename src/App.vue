@@ -4,6 +4,7 @@ import SinglePhaseMonitor from './components/SinglePhaseMonitor.vue'
 import ThreePhaseMonitor from './components/ThreePhaseMonitor.vue'
 import RealTimeChart from './components/RealTimeChart.vue'
 import AIAgent from './components/AIAgent.vue'
+import CarbonEmissionChart from './components/CarbonEmissionChart.vue'
 import { Monitor, Refresh, Setting, DataAnalysis, Download } from '@element-plus/icons-vue'
 import dataManager from './services/dataManager.js'
 
@@ -496,12 +497,12 @@ onUnmounted(() => {
               <el-icon><Monitor /></el-icon>
               <span>即時監測數據</span>
             </el-menu-item>
-            
-            <!-- <el-menu-item index="history" class="menu-item">
+
+            <el-menu-item index="carbon" class="menu-item">
               <el-icon><DataAnalysis /></el-icon>
-              <span>歷史數據分析</span>
-            </el-menu-item> -->
-            
+              <span>碳排放趨勢</span>
+            </el-menu-item>
+
             <el-menu-item index="download" class="menu-item">
               <el-icon><Download /></el-icon>
               <span>歷史資料下載</span>
@@ -861,6 +862,11 @@ onUnmounted(() => {
                 </div>
               </div>
             </el-card>
+          </div>
+
+          <!-- 碳排放趨勢頁面 -->
+          <div v-else-if="activePage === 'carbon'" class="page-content">
+            <CarbonEmissionChart />
           </div>
 
           <!-- 历史资料下载页面 -->
