@@ -164,12 +164,11 @@ const USE_MOCK_RESPONSE = ref(false)
 const isApiReady = ref(true)
 
 const quickQuestions = [
-  '電壓是否正常？',
-  '功率因子如何改善？',
-  '如何節能？',
-  '碳排放分析',
-  '用電量高的原因？',
-  '如何降低電費？',
+  '三項電力電壓是否正常？',
+  '三項電力功率因子如何改善？',
+  '三項電力如何節能？',
+  '三項電力碳排放分析',
+  '三項電力如何降低電費？',
 ]
 
 // Functions
@@ -223,13 +222,27 @@ const callGeminiAPI = async (question) => {
 5. 使用簡潔的項目符號，不要過度展開
 
 📊 當前電力監測數據：
-• 電壓: ${data.voltage || 'N/A'} V
-• 電流: ${data.current || 'N/A'} A
-• 功率: ${data.totalPower || data.power || 'N/A'} W
-• 用電量: ${data.totalEnergy || data.energy || 'N/A'} kWh
-• 頻率: ${data.frequency || 'N/A'} Hz
-• 功率因子: ${(data.powerFactor || 0).toFixed(2)}
-• 碳排放量: ${data.carbonEmission || 'N/A'} kgCO₂e
+
+**系統總覽：**
+• 總功率: ${data.totalPower || 'N/A'} W
+• 總用電量: ${data.totalEnergy || 'N/A'} kWh
+• 總碳排放: ${data.carbonEmission || 'N/A'} kgCO₂e
+
+**單相電力數據：**
+• 電壓: ${data.singlePhase?.voltage || 'N/A'} V
+• 電流: ${data.singlePhase?.current || 'N/A'} A
+• 功率: ${data.singlePhase?.power || 'N/A'} W
+• 用電量: ${data.singlePhase?.energy || 'N/A'} kWh
+• 頻率: ${data.singlePhase?.frequency || 'N/A'} Hz
+• 功率因子: ${data.singlePhase?.powerFactor ? data.singlePhase.powerFactor.toFixed(2) : 'N/A'}
+
+**三相電力數據：**
+• 電壓: ${data.threePhase?.voltage || 'N/A'} V
+• 電流: ${data.threePhase?.current || 'N/A'} A
+• 功率: ${data.threePhase?.power || 'N/A'} W
+• 用電量: ${data.threePhase?.energy || 'N/A'} kWh
+• 頻率: ${data.threePhase?.frequency || 'N/A'} Hz
+• 功率因子: ${data.threePhase?.powerFactor ? data.threePhase.powerFactor.toFixed(2) : 'N/A'}
 
 用戶問題: ${question}
 
@@ -287,7 +300,28 @@ const getMockResponse = (question) => {
   }
 
   if (q.includes('電壓') || q.includes('voltage')) {
-    const v = data.voltage || 0
+    // 判斷是否詢問三相電壓
+    const isThreePhase = q.includes('三相') || q.includes('三項')
+
+    if (isThreePhase && data.threePhase) {
+      const v = data.threePhase.voltage || 0
+      if (v === 0 || !v) {
+        return `⚠️ 三相電壓資訊不足，無法判斷是否正常。請提供各相電壓數據。`
+      }
+      if (v >= 200 && v <= 240) {
+        return `✅ 三相電壓正常：**${v} V**（標準範圍 200-240V）`
+      } else if (v > 240) {
+        return `⚠️ 三相電壓偏高：**${v} V**\n• 建議使用穩壓器\n• 避免使用精密設備`
+      } else {
+        return `❌ 三相電壓偏低：**${v} V**\n• 聯繫電力公司檢查\n• 可能影響設備啟動`
+      }
+    }
+
+    // 單相電壓判斷
+    const v = data.singlePhase?.voltage || data.voltage || 0
+    if (v === 0 || !v) {
+      return `⚠️ 電壓資訊不足，無法判斷是否正常。當前讀數：${v} V`
+    }
     if (v >= 200 && v <= 240) {
       return `✅ 電壓正常：**${v} V**（標準範圍 200-240V）`
     } else if (v > 240) {
@@ -298,9 +332,18 @@ const getMockResponse = (question) => {
   }
 
   if (q.includes('功率因子') || q.includes('pf')) {
-    const pf = data.powerFactor || 0
+    const isThreePhase = q.includes('三相') || q.includes('三項')
+    const pf = isThreePhase
+      ? (data.threePhase?.powerFactor || 0)
+      : (data.singlePhase?.powerFactor || data.powerFactor || 0)
+
+    if (pf === 0) {
+      return `⚠️ 功率因子資訊不足，無法判斷。`
+    }
+
     const status = pf >= 0.9 ? '✅ 優秀' : pf >= 0.8 ? '⚠️ 尚可' : '❌ 偏低'
-    return `${status}：**${pf.toFixed(2)}**\n建議：${pf < 0.9 ? '使用功率因子校正器、減少電感性負載' : '維持現狀即可'}`
+    const phaseText = isThreePhase ? '三相' : '單相'
+    return `${phaseText}${status}：**${pf.toFixed(2)}**\n建議：${pf < 0.9 ? '使用功率因子校正器、減少電感性負載' : '維持現狀即可'}`
   }
 
   if (q.includes('節能') || q.includes('降低') || q.includes('省電')) {
@@ -325,7 +368,13 @@ const getMockResponse = (question) => {
   }
 
   // 電力相關的預設回應
-  return `📊 即時數據：電壓 ${data.voltage || 'N/A'} V、電流 ${data.current || 'N/A'} A、功率 ${data.totalPower || data.power || 'N/A'} W、用電 ${data.totalEnergy || data.energy || 'N/A'} kWh。請問需要分析哪項？`
+  return `📊 即時數據：
+
+**單相：** 電壓 ${data.singlePhase?.voltage || 'N/A'} V、電流 ${data.singlePhase?.current || 'N/A'} A、功率 ${data.singlePhase?.power || 'N/A'} W
+
+**三相：** 電壓 ${data.threePhase?.voltage || 'N/A'} V、電流 ${data.threePhase?.current || 'N/A'} A、功率 ${data.threePhase?.power || 'N/A'} W
+
+請問需要分析哪項？`
 }
 
 const sendMessage = async () => {

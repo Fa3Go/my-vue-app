@@ -5,12 +5,20 @@ import ThreePhaseMonitor from './components/ThreePhaseMonitor.vue'
 import RealTimeChart from './components/RealTimeChart.vue'
 import AIAgent from './components/AIAgent.vue'
 import CarbonEmissionChart from './components/CarbonEmissionChart.vue'
-import { Monitor, Refresh, Setting, DataAnalysis, Download } from '@element-plus/icons-vue'
+import { Monitor, Refresh, Setting, DataAnalysis, Download, Expand, Fold } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import dataManager from './services/dataManager.js'
+import dataService from './services/dataService.js'
 
 // 當前選中的頁面
 const activePage = ref('realtime')
 const dateRange = ref([])
+
+// 側邊欄收縮狀態
+const isCollapsed = ref(false)
+
+// 系統概覽顯示類型
+const overviewType = ref('single') // 'single' 或 'three'
 
 // 歷史資料相關
 const historyDataType = ref('single') // 'single' 或 'three'
@@ -92,31 +100,52 @@ const generateHistoryData = () => {
   return data
 }
 
-// 初始化歷史資料
-const initHistoryData = () => {
-  // 單向歷史資料
-  historyData.value.single.voltage = generateHistoryData()
-  historyData.value.single.current = generateHistoryData()
-  historyData.value.single.power = generateHistoryData()
-  historyData.value.single.energy = generateHistoryData()
-  historyData.value.single.frequency = generateHistoryData()
-  historyData.value.single.powerFactor = generateHistoryData().map(item => ({
-    ...item,
-    value: (Math.random() * 0.2 + 0.8).toFixed(2)
-  }))
-  historyData.value.single.carbonEmission = generateHistoryData()
+// 初始化歷史資料（使用真實 API 數據）
+const initHistoryData = async () => {
+  try {
+    console.log('🔄 開始載入歷史資料...')
 
-  // 三相歷史資料
-  historyData.value.three.voltage = generateHistoryData()
-  historyData.value.three.current = generateHistoryData()
-  historyData.value.three.power = generateHistoryData()
-  historyData.value.three.energy = generateHistoryData()
-  historyData.value.three.frequency = generateHistoryData()
-  historyData.value.three.powerFactor = generateHistoryData().map(item => ({
+    // 獲取單相歷史資料
+    const singleResult = await dataService.getHistoricalData('single', 100)
+    if (singleResult.status === 'success' && singleResult.data) {
+      historyData.value.single = singleResult.data
+      console.log('✅ 單相歷史資料載入成功')
+    } else {
+      console.warn('⚠️ 單相歷史資料載入失敗，使用模擬資料')
+      loadMockHistoryData('single')
+    }
+
+    // 獲取三相歷史資料
+    const threeResult = await dataService.getHistoricalData('three', 100)
+    if (threeResult.status === 'success' && threeResult.data) {
+      historyData.value.three = threeResult.data
+      console.log('✅ 三相歷史資料載入成功')
+    } else {
+      console.warn('⚠️ 三相歷史資料載入失敗，使用模擬資料')
+      loadMockHistoryData('three')
+    }
+  } catch (error) {
+    console.error('❌ 載入歷史資料失敗:', error)
+    // 載入失敗時使用模擬資料
+    loadMockHistoryData('single')
+    loadMockHistoryData('three')
+  }
+}
+
+// 載入模擬歷史資料（作為備用）
+const loadMockHistoryData = (type) => {
+  const target = type === 'single' ? historyData.value.single : historyData.value.three
+
+  target.voltage = generateHistoryData()
+  target.current = generateHistoryData()
+  target.power = generateHistoryData()
+  target.energy = generateHistoryData()
+  target.frequency = generateHistoryData()
+  target.powerFactor = generateHistoryData().map(item => ({
     ...item,
     value: (Math.random() * 0.2 + 0.8).toFixed(2)
   }))
-  historyData.value.three.carbonEmission = generateHistoryData()
+  target.carbonEmission = generateHistoryData()
 }
 
 // 更新資料（使用資料管理器）
@@ -132,7 +161,7 @@ const updateData = async () => {
     console.log('資料來源狀態:', connectionStatus)
 
     if (systemData && systemData.timestamp) {
-      console.log('✅ 使用 ThingSpeak 真實資料')
+      console.log('✅ 使用 ThingSpeak 資料')
       console.log('ThingSpeak 資料:', {
         電壓: systemData.voltage + 'V',
         電流: systemData.current + 'A',
@@ -140,7 +169,7 @@ const updateData = async () => {
         頻率: systemData.frequency + 'Hz',
         功率因子: systemData.powerFactor + ' pf',
         用電量: systemData.energy + 'kWh',
-        碳排放量: systemData.carbonEmission + 'kgCO2e'
+        碳排放量: systemData.carbonEmission + 'kgCO₂e'
       })
     } else {
       console.log('⚠️ 未獲取到 ThingSpeak 資料')
@@ -270,6 +299,82 @@ const refreshData = async () => {
   await updateData()
 }
 
+// 刷新歷史資料
+const refreshHistoryData = async () => {
+  let startDate = dateRange.value && dateRange.value[0] ? dateRange.value[0] : null
+  let endDate = dateRange.value && dateRange.value[1] ? dateRange.value[1] : null
+
+  // 修正日期時區問題
+  if (startDate) {
+    startDate = new Date(startDate)
+    // 設定為當天的 12:00:00 (中午,確保在當天範圍內)
+    startDate.setHours(12, 0, 0, 0)
+  }
+
+  if (endDate) {
+    endDate = new Date(endDate)
+    // 設定為當天的 23:59:59 (本地時間)
+    endDate.setHours(23, 59, 59, 999)
+  }
+
+  console.log('📅 選擇的日期範圍:', {
+    原始開始: dateRange.value?.[0],
+    原始結束: dateRange.value?.[1],
+    處理後開始: startDate?.toLocaleString('zh-TW'),
+    處理後結束: endDate?.toLocaleString('zh-TW'),
+    ISO開始: startDate?.toISOString(),
+    ISO結束: endDate?.toISOString()
+  })
+
+  try {
+    ElMessage.info('正在載入歷史資料...')
+
+    // 根據選擇的類型載入資料
+    if (historyDataType.value === 'single') {
+      const singleResult = await dataService.getHistoricalData('single', 100, startDate, endDate)
+      console.log('單相歷史資料結果:', singleResult)
+
+      if (singleResult.status === 'success' && singleResult.data) {
+        historyData.value.single = singleResult.data
+
+        // 顯示載入模式資訊
+        const mode = singleResult.mode === 'hourly' ? '單日小時數據' : '多日最高數據'
+        ElMessage.success(`單相歷史資料載入成功 (${mode})`)
+        console.log(`📊 顯示模式: ${mode}`)
+      } else if (singleResult.status === 'not_configured') {
+        ElMessage.warning('未設定單相 API 金鑰，使用模擬資料')
+        loadMockHistoryData('single')
+      } else {
+        ElMessage.warning(`單相歷史資料載入失敗: ${singleResult.message}`)
+        loadMockHistoryData('single')
+      }
+    } else {
+      const threeResult = await dataService.getHistoricalData('three', 100, startDate, endDate)
+      console.log('三相歷史資料結果:', threeResult)
+
+      if (threeResult.status === 'success' && threeResult.data) {
+        historyData.value.three = threeResult.data
+
+        // 顯示載入模式資訊
+        const mode = threeResult.mode === 'hourly' ? '單日小時數據' : '多日最高數據'
+        ElMessage.success(`三相歷史資料載入成功 (${mode})`)
+        console.log(`📊 顯示模式: ${mode}`)
+      } else if (threeResult.status === 'not_configured') {
+        ElMessage.warning('未設定三相 API 金鑰，使用模擬資料')
+        loadMockHistoryData('three')
+      } else {
+        ElMessage.warning(`三相歷史資料載入失敗: ${threeResult.message}`)
+        loadMockHistoryData('three')
+      }
+    }
+  } catch (error) {
+    console.error('載入歷史資料失敗:', error)
+    ElMessage.error('載入歷史資料失敗')
+    // 發生錯誤時使用模擬資料
+    loadMockHistoryData(historyDataType.value)
+  }
+}
+
 const showSettings = () => {
   // 顯示設定對話框
   console.log('顯示設定')
@@ -336,13 +441,13 @@ const downloadCompleteHistoryData = () => {
 
   if (historyDataType.value === 'single') {
     // 單向完整資料
-    csvContent += "時間,電壓(V),電流(A),功率(W),用電量(kWh),頻率(Hz),功率因子(pf),碳排放量(kgCO2e)\n"
+    csvContent += "時間,電壓(V),電流(A),功率(W),用電量(kWh),頻率(Hz),功率因子(pf),碳排放量(kgCO₂e)\n"
     for (let i = 0; i < data.voltage.length; i++) {
       csvContent += `${data.voltage[i].time},${data.voltage[i].value},${data.current[i].value},${data.power[i].value},${data.energy[i].value},${data.frequency[i].value},${data.powerFactor[i].value},${data.carbonEmission[i].value}\n`
     }
   } else {
     // 三相完整資料
-    csvContent += "時間,電壓(V),電流(A),功率(W),用電量(kWh),頻率(Hz),功率因子(pf),碳排放量(kgCO2e)\n"
+    csvContent += "時間,電壓(V),電流(A),功率(W),用電量(kWh),頻率(Hz),功率因子(pf),碳排放量(kgCO₂e)\n"
     for (let i = 0; i < data.voltage.length; i++) {
       csvContent += `${data.voltage[i].time},${data.voltage[i].value},${data.current[i].value},${data.power[i].value},${data.energy[i].value},${data.frequency[i].value},${data.powerFactor[i].value},${data.carbonEmission[i].value}\n`
     }
@@ -364,8 +469,8 @@ onMounted(async () => {
   // 初始化資料管理器
   await dataManager.init()
 
-  // 初始化歷史數據
-  initHistoryData()
+  // 初始化歷史數據（使用 await 確保載入完成）
+  await initHistoryData()
 
   // 更新數據並初始化圖表
   await updateData()
@@ -375,6 +480,18 @@ onMounted(async () => {
 
   // 設置定時更新（每30秒更新一次）
   dataInterval = setInterval(updateData, 30000)
+})
+
+// 監聽日期範圍變化
+watch(dateRange, (newVal) => {
+  if (newVal && newVal.length === 2) {
+    refreshHistoryData()
+  }
+})
+
+// 監聽歷史數據類型變化
+watch(historyDataType, () => {
+  refreshHistoryData()
 })
 
 // 初始化圖表資料
@@ -480,22 +597,35 @@ onUnmounted(() => {
 
       <el-container>
         <!-- 左侧导航栏 -->
-        <el-aside width="250px" class="sidebar">
+        <el-aside :width="isCollapsed ? '64px' : '250px'" class="sidebar">
+          <!-- 標題欄與收縮按鈕 -->
+          <div class="sidebar-top">
+            <h3 v-if="!isCollapsed" class="sidebar-title">功能選單</h3>
+            <div class="collapse-btn" @click="isCollapsed = !isCollapsed">
+              <el-icon>
+                <component :is="isCollapsed ? 'Expand' : 'Fold'" />
+              </el-icon>
+            </div>
+          </div>
+
           <el-menu
             :default-active="activePage"
             class="sidebar-menu"
+            :collapse="isCollapsed"
             @select="handlePageChange"
             background-color="#2c3e50"
             text-color="#ecf0f1"
             active-text-color="#4CAF50"
           >
-            <div class="sidebar-header">
-              <h3>功能選單</h3>
-            </div>
-            
+
             <el-menu-item index="realtime" class="menu-item">
               <el-icon><Monitor /></el-icon>
               <span>即時監測數據</span>
+            </el-menu-item>
+
+            <el-menu-item index="history" class="menu-item">
+              <el-icon><Histogram /></el-icon>
+              <span>歷史數據分析</span>
             </el-menu-item>
 
             <el-menu-item index="carbon" class="menu-item">
@@ -510,54 +640,60 @@ onUnmounted(() => {
           </el-menu>
         </el-aside>
 
-        <!-- 主要内容区域 -->
+        <!-- 主要內容區域 -->
         <el-main class="app-main">
-          <!-- 实时监测数据页面 -->
+          <!-- 實時監測資料頁面 -->
           <div v-if="activePage === 'realtime'" class="page-content">
             <el-row :gutter="20">
-              <!-- 系统概览卡片 -->
+              <!-- 系統概覽卡片 -->
               <el-col :span="24">
                 <el-card class="overview-card">
                   <template #header>
                     <div class="card-header">
                       <span>系統概覽</span>
-                      <el-tag type="success">運行正常</el-tag>
+                      <div class="overview-controls">
+                        <el-radio-group v-model="overviewType" size="small">
+                          <el-radio-button label="single">單相</el-radio-button>
+                          <el-radio-button label="three">三相</el-radio-button>
+                        </el-radio-group>
+                        <el-tag type="success">運行正常</el-tag>
+                      </div>
                     </div>
                   </template>
                   <el-row :gutter="20">
                     <el-col :span="4">
                       <div class="metric-item">
-                        <div class="metric-value">{{ systemStatus.totalPower }} W</div>
-                        <div class="metric-label">總功率</div>
+                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.power : threePhaseData.power }} W</div>
+                        <div class="metric-label">功率</div>
                       </div>
                     </el-col>
                     <el-col :span="4">
                       <div class="metric-item">
-                        <div class="metric-value">{{ systemStatus.voltage }} V</div>
+                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.voltage : threePhaseData.voltage }} V</div>
                         <div class="metric-label">電壓</div>
                       </div>
                     </el-col>
                     <el-col :span="4">
                       <div class="metric-item">
-                        <div class="metric-value">{{ systemStatus.current }} A</div>
+                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.current : threePhaseData.current }} A</div>
                         <div class="metric-label">電流</div>
                       </div>
                     </el-col>
                     <el-col :span="4">
                       <div class="metric-item">
-                        <div class="metric-value">{{ systemStatus.frequency }} Hz</div>
+                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.frequency : threePhaseData.frequency }} Hz</div>
                         <div class="metric-label">頻率</div>
                       </div>
                     </el-col>
                     <el-col :span="4">
                       <div class="metric-item">
-                        <div class="metric-value">{{ systemStatus.totalEnergy }} kWh</div>
+                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.energy : threePhaseData.energy }} kWh</div>
                         <div class="metric-label">用電量</div>
                       </div>
                     </el-col>
                     <el-col :span="4">
                       <div class="metric-item">
-                        <div class="metric-value">{{ systemStatus.carbonEmission }} kgCO2e</div>
+                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.carbonEmission : threePhaseData.carbonEmission }} kgCO₂e</div>
                         <div class="metric-label">碳排放</div>
                       </div>
                     </el-col>
@@ -567,26 +703,26 @@ onUnmounted(() => {
             </el-row>
 
             <el-row :gutter="20" style="margin-top: 20px;">
-              <!-- 单向电力监测 -->
+              <!-- 單相電力監測 -->
               <el-col :span="12">
                 <el-card class="monitoring-card">
                   <template #header>
                     <div class="card-header">
-                      <span>單相電力監測</span>
-                      <el-tag type="success">ThingSpeak 真實資料</el-tag>
+                      <span>單相220V電力監測</span>
+                      <el-tag type="success">即時資料</el-tag>
                     </div>
                   </template>
                   <SinglePhaseMonitor :data="singlePhaseData" />
                 </el-card>
               </el-col>
 
-              <!-- 三相电力监测 -->
+              <!-- 三相電力監測 -->
               <el-col :span="12">
                 <el-card class="monitoring-card">
                   <template #header>
                     <div class="card-header">
                       <span>三相電力監測</span>
-                      <el-tag type="success">ThingSpeak 真實資料</el-tag>
+                      <el-tag type="success">即時資料</el-tag>
                     </div>
                   </template>
                   <ThreePhaseMonitor :data="threePhaseData" />
@@ -601,7 +737,7 @@ onUnmounted(() => {
                   <template #header>
                     <div class="card-header">
                       <span>單相實時數據圖表</span>
-                      <el-tag type="success">ThingSpeak 真實資料</el-tag>
+                      <el-tag type="success">即時資料</el-tag>
                     </div>
                   </template>
                   <div class="chart-controls">
@@ -625,7 +761,7 @@ onUnmounted(() => {
                   <template #header>
                     <div class="card-header">
                       <span>三相實時數據圖表</span>
-                      <el-tag type="success">ThingSpeak 真實資料</el-tag>
+                      <el-tag type="success">即時資料</el-tag>
                     </div>
                   </template>
                   <div class="chart-controls">
@@ -645,7 +781,7 @@ onUnmounted(() => {
             </el-row>
           </div>
 
-          <!-- 历史数据分析页面 -->
+          <!-- 歷史數據分析 -->
           <div v-else-if="activePage === 'history'" class="page-content">
             <el-card class="history-card">
               <template #header>
@@ -664,12 +800,16 @@ onUnmounted(() => {
                       end-placeholder="結束日期"
                       size="small"
                     />
+                    <el-button type="primary" size="small" @click="refreshHistoryData">
+                      <el-icon><Refresh /></el-icon>
+                      刷新數據
+                    </el-button>
                   </div>
                 </div>
               </template>
               
               <div class="history-content">
-                <!-- 单向历史数据 -->
+                <!-- 單相歷史數據 -->
                 <div v-if="historyDataType === 'single'" class="single-history">
                   <el-row :gutter="20">
                     <el-col :span="12">
@@ -752,7 +892,7 @@ onUnmounted(() => {
                         <template #header>
                           <div class="chart-header">
                             <span>碳排放量歷史趨勢</span>
-                            <el-tag type="info">kgCO2e</el-tag>
+                            <el-tag type="info">kgCO₂e</el-tag>
                           </div>
                         </template>
                         <RealTimeChart type="carbonEmission" :data="historyData.single.carbonEmission" />
@@ -761,7 +901,7 @@ onUnmounted(() => {
                   </el-row>
                 </div>
 
-                <!-- 三相历史数据 -->
+                <!-- 三相歷史數據 -->
                 <div v-else class="three-history">
                   <!-- 電壓歷史趨勢 -->
                   <el-row :gutter="20">
@@ -848,7 +988,7 @@ onUnmounted(() => {
                         <template #header>
                           <div class="chart-header">
                             <span>三相碳排放量歷史趨勢</span>
-                            <el-tag type="warning">kgCO2e</el-tag>
+                            <el-tag type="warning">kgCO₂e</el-tag>
                           </div>
                         </template>
                         <RealTimeChart type="carbonEmission" :data="historyData.three.carbonEmission" />
@@ -869,7 +1009,7 @@ onUnmounted(() => {
             <CarbonEmissionChart />
           </div>
 
-          <!-- 历史资料下载页面 -->
+          <!-- 歷史資料下載 -->
           <div v-else-if="activePage === 'download'" class="page-content">
             <el-card class="download-card">
               <template #header>
@@ -964,7 +1104,11 @@ onUnmounted(() => {
     </el-container>
 
     <!-- AI 助手 -->
-    <AIAgent :current-data="systemStatus" />
+    <AIAgent :current-data="{
+      ...systemStatus,
+      singlePhase: singlePhaseData,
+      threePhase: threePhaseData
+    }" />
   </div>
 </template>
 
@@ -1016,27 +1160,58 @@ onUnmounted(() => {
   color: white !important;
 }
 
-/* 侧边栏样式 */
+/* 側邊欄樣式 */
 .sidebar {
   background-color: #2c3e50;
   border-right: 1px solid #34495e;
+  position: relative;
+  transition: width 0.3s ease;
+}
+
+.sidebar-top {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 15px;
+  border-bottom: 1px solid #34495e;
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.sidebar-title {
+  color: #ecf0f1;
+  margin: 0;
+  font-size: 18px;
+  flex: 1;
+}
+
+.collapse-btn {
+  width: 36px;
+  height: 36px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #ecf0f1;
+  transition: all 0.3s;
+  flex-shrink: 0;
+}
+
+.collapse-btn .el-icon {
+  font-size: 18px;
+}
+
+.collapse-btn:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #4CAF50;
 }
 
 .sidebar-menu {
   border: none;
-  height: 100%;
-}
-
-.sidebar-header {
-  padding: 20px;
-  text-align: center;
-  border-bottom: 1px solid #34495e;
-}
-
-.sidebar-header h3 {
-  color: #ecf0f1;
-  margin: 0;
-  font-size: 18px;
+  height: calc(100% - 60px);
+  transition: width 0.3s ease;
 }
 
 .menu-item {
@@ -1049,9 +1224,14 @@ onUnmounted(() => {
   background-color: #34495e !important;
 }
 
-.menu-item .el-icon {
+.sidebar-menu:not(.el-menu--collapse) .menu-item .el-icon {
   margin-right: 10px;
   font-size: 18px;
+}
+
+.sidebar-menu.el-menu--collapse .menu-item {
+  margin: 5px 0;
+  padding: 0 !important;
 }
 
 .app-main {
@@ -1094,6 +1274,12 @@ onUnmounted(() => {
   font-size: 18px;
   font-weight: 600;
   color: #2c5530;
+}
+
+.overview-controls {
+  display: flex;
+  gap: 15px;
+  align-items: center;
 }
 
 .history-controls {

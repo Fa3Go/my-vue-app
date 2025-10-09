@@ -83,7 +83,7 @@
               <el-icon><Sunny /></el-icon>
             </div>
             <div class="carbon-info">
-              <div class="carbon-value">{{ data.carbonEmission }} kgCO2e</div>
+              <div class="carbon-value">{{ data.carbonEmission }} kgCO₂e</div>
               <div class="carbon-label">碳排放量</div>
             </div>
           </div>

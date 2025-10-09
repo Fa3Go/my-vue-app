@@ -55,7 +55,8 @@ const updateChart = () => {
       trigger: 'axis',
       formatter: function(params) {
         const data = params[0]
-        return `${data.name}<br/>${data.value} ${getUnit()}`
+        const value = typeof data.value === 'number' ? data.value.toFixed(2) : data.value
+        return `${data.name}<br/>${value} ${getUnit()}`
       }
     },
     grid: {
@@ -82,7 +83,8 @@ const updateChart = () => {
       max: yAxisRange.max,
       axisLabel: {
         formatter: function(value) {
-          return value + ' ' + getUnit()
+          // 格式化為 2 位小數
+          return value.toFixed(2) + ' ' + getUnit()
         }
       }
     },
