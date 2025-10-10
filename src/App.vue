@@ -663,12 +663,6 @@ onUnmounted(() => {
                   <el-row :gutter="20">
                     <el-col :span="4">
                       <div class="metric-item">
-                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.power : threePhaseData.power }} W</div>
-                        <div class="metric-label">功率</div>
-                      </div>
-                    </el-col>
-                    <el-col :span="4">
-                      <div class="metric-item">
                         <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.voltage : threePhaseData.voltage }} V</div>
                         <div class="metric-label">電壓</div>
                       </div>
@@ -681,14 +675,20 @@ onUnmounted(() => {
                     </el-col>
                     <el-col :span="4">
                       <div class="metric-item">
-                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.frequency : threePhaseData.frequency }} Hz</div>
-                        <div class="metric-label">頻率</div>
+                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.power : threePhaseData.power }} W</div>
+                        <div class="metric-label">功率</div>
                       </div>
                     </el-col>
                     <el-col :span="4">
                       <div class="metric-item">
                         <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.energy : threePhaseData.energy }} kWh</div>
                         <div class="metric-label">用電量</div>
+                      </div>
+                    </el-col>
+                    <el-col :span="4">
+                      <div class="metric-item">
+                        <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.frequency : threePhaseData.frequency }} Hz</div>
+                        <div class="metric-label">頻率</div>
                       </div>
                     </el-col>
                     <el-col :span="4">
