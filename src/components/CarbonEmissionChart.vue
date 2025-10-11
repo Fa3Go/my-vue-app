@@ -8,6 +8,10 @@
             <span class="header-title">碳排放趨勢分析</span>
           </div>
           <div class="header-right">
+            <el-radio-group v-model="phaseType" size="small" @change="loadData" style="margin-right: 15px;">
+              <el-radio-button label="single">單相</el-radio-button>
+              <el-radio-button label="three">三相</el-radio-button>
+            </el-radio-group>
             <el-radio-group v-model="timeRange" size="small" @change="loadData">
               <el-radio-button label="day">日</el-radio-button>
               <el-radio-button label="week">週</el-radio-button>
@@ -77,7 +81,8 @@ import * as echarts from 'echarts'
 // State
 const chartRef = ref(null)
 const chartInstance = ref(null)
-const timeRange = ref('day') // day, week, month
+const phaseType = ref('single') // single, three
+const timeRange = ref('day') // day, week, month, year
 const chartData = ref([])
 const loading = ref(false)
 
@@ -106,28 +111,33 @@ const treesNeeded = computed(() => {
 const loadData = async () => {
   loading.value = true
   try {
+    // 根據 phaseType 選擇對應的 channel ID
+    const channelId = phaseType.value === 'single'
+      ? import.meta.env.VITE_THINGSPEAK_CHANNEL_ID_SINGLE
+      : import.meta.env.VITE_THINGSPEAK_CHANNEL_ID_THREE
+
     let url = ''
     const now = new Date()
 
     if (timeRange.value === 'day') {
       // 日模式：獲取最近24小時的所有原始數據（不使用average）
       const start = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-      url = `https://api.thingspeak.com/channels/2521976/feeds.json?start=${start.toISOString()}`
+      url = `https://api.thingspeak.com/channels/${channelId}/feeds.json?start=${start.toISOString()}`
     } else if (timeRange.value === 'week') {
-      // 週模式：最近 8 天的每日平均值
-      const start = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000)
-      url = `https://api.thingspeak.com/channels/2521976/feeds.json?start=${start.toISOString()}&average=1440`
+      // 週模式：往前多取5天作為基準（共12天），確保第一天也能計算增量
+      const start = new Date(now.getTime() - 12 * 24 * 60 * 60 * 1000)
+      url = `https://api.thingspeak.com/channels/${channelId}/feeds.json?start=${start.toISOString()}&average=1440`
     } else if (timeRange.value === 'month') {
-      // 月模式：最近 31 天的每日平均值
-      const start = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000)
-      url = `https://api.thingspeak.com/channels/2521976/feeds.json?start=${start.toISOString()}&average=1440`
+      // 月模式：往前多取5天作為基準（共35天），確保第一天也能計算增量
+      const start = new Date(now.getTime() - 35 * 24 * 60 * 60 * 1000)
+      url = `https://api.thingspeak.com/channels/${channelId}/feeds.json?start=${start.toISOString()}&average=1440`
     } else if (timeRange.value === 'year') {
-      // 年模式：最近 13 個月的每日平均值（用於計算每月增量）
-      const start = new Date(now.getTime() - 13 * 30 * 24 * 60 * 60 * 1000)
-      url = `https://api.thingspeak.com/channels/2521976/feeds.json?start=${start.toISOString()}&average=1440`
+      // 年模式：使用 results 參數獲取最近的數據，而不是指定時間範圍
+      // 每天1筆，12個月約365筆，加上基準往前多取一些
+      url = `https://api.thingspeak.com/channels/${channelId}/feeds.json?average=1440&results=400`
     }
 
-    console.log(`📊 載入 ${timeRange.value} 碳排放資料...`, url)
+    console.log(`📊 載入 ${phaseType.value === 'single' ? '單相' : '三相'} ${timeRange.value} 碳排放資料...`, url)
 
     const response = await fetch(url)
 
@@ -176,8 +186,11 @@ const processChartData = (feeds) => {
         }
       }
 
-      const carbonValue = parseFloat(feed.field7) || 0
-      grouped[hourKey].values.push(carbonValue)
+      const carbonValue = parseFloat(feed.field7)
+      // 只添加有效的數值
+      if (carbonValue && !isNaN(carbonValue)) {
+        grouped[hourKey].values.push(carbonValue)
+      }
     })
 
     // 按時間戳排序，然後計算每小時的增量
@@ -201,66 +214,119 @@ const processChartData = (feeds) => {
 
     return result
   } else if (timeRange.value === 'year') {
-    // 年模式：按月分組，計算每月的碳排放增量
-    const monthlyData = {}
+    // 年模式：計算月與月之間的增量
+    const monthlyData = new Map()
 
-    // 先將每日數據按月份分組
+    // 按時間順序處理，保存每月最後一筆有效數據
     feeds.forEach(feed => {
-      const timestamp = new Date(feed.created_at)
-      const year = timestamp.getFullYear()
-      const month = timestamp.getMonth() + 1
-      const monthKey = `${year}/${String(month).padStart(2, '0')}`
-
-      if (!monthlyData[monthKey]) {
-        monthlyData[monthKey] = []
+      const carbonValue = parseFloat(feed.field7)
+      if (!carbonValue || isNaN(carbonValue)) {
+        return // 跳過無效數據
       }
 
-      const carbonValue = parseFloat(feed.field7) || 0
-      monthlyData[monthKey].push(carbonValue)
+      const feedDate = feed.created_at.split('T')[0] // YYYY-MM-DD
+      const monthKey = feedDate.substring(0, 7) // YYYY-MM
+      const displayKey = monthKey.replace('-', '/') // YYYY/MM
+
+      // 總是保存該月的數據（後面的會覆蓋前面的，確保是最後一筆）
+      monthlyData.set(monthKey, {
+        time: displayKey,
+        value: carbonValue,
+        date: feedDate
+      })
     })
 
-    // 計算每月的增量（月底 - 月初）
-    const result = []
-    const sortedMonths = Object.keys(monthlyData).sort()
+    // 計算月與月之間的增量
+    const sortedMonths = Array.from(monthlyData.keys()).sort()
+    const monthlyIncrements = new Map()
+    let previousValue = null
 
     sortedMonths.forEach(monthKey => {
-      const values = monthlyData[monthKey]
-      if (values.length > 0) {
-        // 取該月最後一天減去第一天的值
-        const monthIncrement = values[values.length - 1] - values[0]
-        result.push({
-          time: monthKey,
-          value: Math.max(0, monthIncrement)
-        })
+      const data = monthlyData.get(monthKey)
+      let increment = 0
+
+      if (previousValue !== null) {
+        increment = Math.max(0, data.value - previousValue)
       }
+
+      // 使用 data.time (YYYY/MM 格式) 作為 key
+      monthlyIncrements.set(data.time, {
+        time: data.time,
+        value: increment,
+        hasValidData: true
+      })
+
+      previousValue = data.value
     })
 
-    // 返回最近12個月
-    return result.slice(-12)
-  } else {
-    // 週和月模式：計算相鄰兩天的差值
+    // 生成最近12個月的完整列表
     const result = []
+    const now = new Date()
 
-    for (let i = 1; i < feeds.length; i++) {
-      const currentValue = parseFloat(feeds[i].field7) || 0
-      const previousValue = parseFloat(feeds[i - 1].field7) || 0
-      const increment = currentValue - previousValue
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const year = d.getFullYear()
+      const month = d.getMonth() + 1
+      const displayKey = `${year}/${String(month).padStart(2, '0')}` // YYYY/MM
 
+      if (monthlyIncrements.has(displayKey)) {
+        result.push(monthlyIncrements.get(displayKey))
+      } else {
+        // 沒有數據的月份，填充 0
+        result.push({ time: displayKey, value: 0, hasValidData: false })
+      }
+    }
+
+    return result
+  } else {
+    // 週和月模式：計算相鄰兩筆資料的差值（每日增量）
+    // 第一步：收集所有有效數據並計算增量
+    const dataMap = new Map()
+    let previousValue = null
+
+    for (let i = 0; i < feeds.length; i++) {
+      const currentValue = parseFloat(feeds[i].field7)
+      const feedDate = feeds[i].created_at.split('T')[0] // YYYY-MM-DD
       const timestamp = new Date(feeds[i].created_at)
       const dateKey = `${timestamp.getMonth() + 1}/${timestamp.getDate()}`
 
-      result.push({
-        time: dateKey,
-        value: Math.max(0, increment)
-      })
+      // 跳過無效數據（null, undefined, NaN）
+      if (!currentValue || isNaN(currentValue)) {
+        // 記錄這個日期但沒有有效值
+        dataMap.set(feedDate, { time: dateKey, value: 0, hasValidData: false })
+        continue
+      }
+
+      let increment = 0
+      if (previousValue !== null) {
+        increment = Math.max(0, currentValue - previousValue)
+      }
+
+      dataMap.set(feedDate, { time: dateKey, value: increment, hasValidData: true })
+      previousValue = currentValue
     }
 
-    // 根據時間範圍限制返回的資料筆數
-    if (timeRange.value === 'week') {
-      return result.slice(-7)
-    } else {
-      return result.slice(-30)
+    // 第二步：填補缺失的日期
+    const result = []
+    const now = new Date()
+    let daysToShow = timeRange.value === 'week' ? 7 : 30
+
+    // 生成日期範圍（往前推指定天數）
+    for (let i = daysToShow - 1; i >= 0; i--) {
+      const d = new Date(now)
+      d.setDate(d.getDate() - i)
+      const dateStr = d.toISOString().split('T')[0]
+      const dateKey = `${d.getMonth() + 1}/${d.getDate()}`
+
+      if (dataMap.has(dateStr)) {
+        result.push(dataMap.get(dateStr))
+      } else {
+        // 沒有數據的日期，填充 0
+        result.push({ time: dateKey, value: 0, hasValidData: false })
+      }
     }
+
+    return result
   }
 }
 
@@ -359,6 +425,10 @@ onUnmounted(() => {
 })
 
 watch(timeRange, () => {
+  loadData()
+})
+
+watch(phaseType, () => {
   loadData()
 })
 </script>

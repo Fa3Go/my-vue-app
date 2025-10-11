@@ -176,8 +176,13 @@ class DataService {
           console.log(`📅 單日查詢: ${start.toLocaleDateString()}`)
         } else {
           // 多日:使用 average=daily 獲取每日匯總
-          url = `https://api.thingspeak.com/channels/${config.channelId}/feeds.json?api_key=${config.apiKey}&start=${start.toISOString()}&end=${end.toISOString()}&average=daily`
+          // 為了計算第一天的增量，往前多取5天數據（以防前幾天沒有有效數據）
+          const adjustedStart = new Date(start)
+          adjustedStart.setDate(adjustedStart.getDate() - 5)
+
+          url = `https://api.thingspeak.com/channels/${config.channelId}/feeds.json?api_key=${config.apiKey}&start=${adjustedStart.toISOString()}&end=${end.toISOString()}&average=daily`
           console.log(`📅 多日查詢: ${start.toLocaleDateString()} ~ ${end.toLocaleDateString()} (${daysDiff} 天,使用每日平均)`)
+          console.log(`📅 實際查詢從: ${adjustedStart.toLocaleDateString()} (往前5天作為基準)`)
           console.log(`🌐 API URL: ${url.replace(config.apiKey, '***')}`)
         }
       } else {
@@ -225,51 +230,105 @@ class DataService {
         carbonEmission: []
       }
 
-      processedFeeds.forEach(feed => {
-        const date = new Date(feed.created_at)
-        let time
+      // 儲存碳排放累積值用於計算增量
+      let previousCarbonValue = null
 
-        if (isSingleDay) {
-          // 單日模式: 顯示時:分
-          time = date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
-        } else {
-          // 多日模式: 顯示月/日
-          // 從 created_at 字串直接提取日期 (YYYY-MM-DD)
-          const dateStr = feed.created_at.split('T')[0] // "2025-10-05"
-          const [year, month, day] = dateStr.split('-')
-          time = `${month}/${day}`
+      // 如果有指定日期範圍，記錄開始日期用於過濾（只取日期部分，不考慮時區）
+      let userStartDate = null
+      let userEndDate = null
+      if (startDate && endDate) {
+        const ds = new Date(startDate)
+        const de = new Date(endDate)
+        // 格式化為 YYYY-MM-DD，使用本地日期
+        userStartDate = `${ds.getFullYear()}-${String(ds.getMonth() + 1).padStart(2, '0')}-${String(ds.getDate()).padStart(2, '0')}`
+        userEndDate = `${de.getFullYear()}-${String(de.getMonth() + 1).padStart(2, '0')}-${String(de.getDate()).padStart(2, '0')}`
+      }
 
+      // 第一步：收集所有數據並計算碳排放增量
+      const feedDataMap = new Map() // 存儲每個日期的完整數據
+
+      processedFeeds.forEach((feed) => {
+        const feedDate = feed.created_at.split('T')[0] // YYYY-MM-DD
+        const [, month, day] = feedDate.split('-')
+        const time = `${month}/${day}`
+
+        // 獲取當前碳排放值
+        const currentCarbonValue = Number(feed.field7)
+        const hasValidCarbon = currentCarbonValue && !isNaN(currentCarbonValue)
+
+        let carbonIncrement = 0
+        let hasIncrement = false
+
+        if (hasValidCarbon && previousCarbonValue !== null) {
+          carbonIncrement = Math.max(0, currentCarbonValue - previousCarbonValue)
+          hasIncrement = true
         }
 
-        historyData.voltage.push({
+        // 存儲該日期的所有數據（在更新 previousCarbonValue 之前）
+        feedDataMap.set(feedDate, {
           time,
-          value: Number(feed.field1) || 0
+          voltage: Number(feed.field1) || 0,
+          current: Number(feed.field2) || 0,
+          power: Number(feed.field3) || 0,
+          energy: Number(feed.field4) || 0,
+          frequency: Number(feed.field5) || 0,
+          powerFactor: Number(feed.field6) || 0,
+          carbonIncrement: hasIncrement ? carbonIncrement : 0,
+          hasValidCarbon
         })
-        historyData.current.push({
-          time,
-          value: Number(feed.field2) || 0
-        })
-        historyData.power.push({
-          time,
-          value: Number(feed.field3) || 0
-        })
-        historyData.energy.push({
-          time,
-          value: Number(feed.field4) || 0
-        })
-        historyData.frequency.push({
-          time,
-          value: Number(feed.field5) || 0
-        })
-        historyData.powerFactor.push({
-          time,
-          value: Number(feed.field6) || 0
-        })
-        historyData.carbonEmission.push({
-          time,
-          value: Number(feed.field7) || 0
-        })
+
+        // 更新前一個值（只有在有效時）
+        if (hasValidCarbon) {
+          previousCarbonValue = currentCarbonValue
+        }
       })
+
+      // 第二步：如果有指定日期範圍，填補缺失的日期
+      if (userStartDate && userEndDate && !isSingleDay) {
+        const start = new Date(userStartDate)
+        const end = new Date(userEndDate)
+
+        // 遍歷日期範圍內的每一天
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toISOString().split('T')[0]
+          const [, month, day] = dateStr.split('-')
+          const time = `${month}/${day}`
+
+          if (feedDataMap.has(dateStr)) {
+            // 有API返回數據的日期
+            const data = feedDataMap.get(dateStr)
+            historyData.voltage.push({ time, value: data.voltage })
+            historyData.current.push({ time, value: data.current })
+            historyData.power.push({ time, value: data.power })
+            historyData.energy.push({ time, value: data.energy })
+            historyData.frequency.push({ time, value: data.frequency })
+            historyData.powerFactor.push({ time, value: data.powerFactor })
+            historyData.carbonEmission.push({ time, value: data.carbonIncrement })
+          } else {
+            // API沒有返回的日期，填充 0
+            historyData.voltage.push({ time, value: 0 })
+            historyData.current.push({ time, value: 0 })
+            historyData.power.push({ time, value: 0 })
+            historyData.energy.push({ time, value: 0 })
+            historyData.frequency.push({ time, value: 0 })
+            historyData.powerFactor.push({ time, value: 0 })
+            historyData.carbonEmission.push({ time, value: 0 })
+          }
+        }
+      } else {
+        // 沒有指定日期範圍，使用原有邏輯（只顯示有數據的日期）
+        feedDataMap.forEach((data) => {
+          if (data.hasValidCarbon || data.carbonIncrement > 0) {
+            historyData.voltage.push({ time: data.time, value: data.voltage })
+            historyData.current.push({ time: data.time, value: data.current })
+            historyData.power.push({ time: data.time, value: data.power })
+            historyData.energy.push({ time: data.time, value: data.energy })
+            historyData.frequency.push({ time: data.time, value: data.frequency })
+            historyData.powerFactor.push({ time: data.time, value: data.powerFactor })
+            historyData.carbonEmission.push({ time: data.time, value: data.carbonIncrement })
+          }
+        })
+      }
 
       return {
         status: 'success',

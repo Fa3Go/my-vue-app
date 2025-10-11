@@ -55,7 +55,21 @@ const updateChart = () => {
       trigger: 'axis',
       formatter: function(params) {
         const data = params[0]
-        const value = typeof data.value === 'number' ? data.value.toFixed(2) : data.value
+        let value = data.value
+        if (typeof value === 'number') {
+          // 對於碳排放量，根據數值大小顯示不同的小數位
+          if (props.type === 'carbonEmission') {
+            if (Math.abs(value) < 0.01 && value !== 0) {
+              value = value.toFixed(4)
+            } else if (Math.abs(value) < 1) {
+              value = value.toFixed(3)
+            } else {
+              value = value.toFixed(2)
+            }
+          } else {
+            value = value.toFixed(2)
+          }
+        }
         return `${data.name}<br/>${value} ${getUnit()}`
       }
     },
@@ -83,7 +97,18 @@ const updateChart = () => {
       max: yAxisRange.max,
       axisLabel: {
         formatter: function(value) {
-          // 格式化為 2 位小數
+          // 對於碳排放量，顯示更多小數位（如果數值很小）
+          if (props.type === 'carbonEmission') {
+            // 如果數值小於 0.01，顯示更多小數位
+            if (Math.abs(value) < 0.01 && value !== 0) {
+              return value.toFixed(4) + ' ' + getUnit()
+            } else if (Math.abs(value) < 1) {
+              return value.toFixed(3) + ' ' + getUnit()
+            } else {
+              return value.toFixed(2) + ' ' + getUnit()
+            }
+          }
+          // 其他類型格式化為 2 位小數
           return value.toFixed(2) + ' ' + getUnit()
         }
       }
