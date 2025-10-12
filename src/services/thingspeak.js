@@ -15,30 +15,30 @@ class ThingSpeakService {
     console.log('- Base URL:', this.baseUrl)
   }
 
-  // 獲取即時資料
+  // 獲取即時資料（單相）
   async getRealTimeData() {
     try {
-      // 使用您建議的 URL 格式
-      const url = `https://api.thingspeak.com/channels/${import.meta.env.VITE_THINGSPEAK_CHANNEL_ID}/feeds.json?api_key=${import.meta.env.VITE_THINGSPEAK_API_KEY}&results=10`
+      // 使用單相專用的 API 金鑰和 Channel ID
+      const url = `https://api.thingspeak.com/channels/${import.meta.env.VITE_THINGSPEAK_CHANNEL_ID_SINGLE}/feeds.json?api_key=${import.meta.env.VITE_THINGSPEAK_API_KEY_SINGLE}&results=10`
 
-      console.log('ThingSpeak API 請求 URL:', url)
+      console.log('單相 ThingSpeak API 請求 URL:', url.replace(import.meta.env.VITE_THINGSPEAK_API_KEY_SINGLE, '***'))
 
       const response = await fetch(url)
-      console.log('API 回應狀態:', response.status, response.statusText)
+      console.log('單相 API 回應狀態:', response.status, response.statusText)
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 
       const data = await response.json()
-      console.log('API 原始回應:', data)
+      console.log('單相 API 原始回應:', data)
 
       const parsedData = this.parseRealTimeData(data)
-      console.log('解析後的資料:', parsedData)
+      console.log('單相解析後的資料:', parsedData)
 
       return parsedData
     } catch (error) {
-      console.error('❌ 獲取 ThingSpeak 即時資料失敗:', error)
+      console.error('❌ 獲取單相 ThingSpeak 即時資料失敗:', error)
       throw error
     }
   }
@@ -168,15 +168,13 @@ class ThingSpeakService {
     }))
   }
 
-  // 獲取三相資料（從大葉大學機械系 H831-1 實驗室電能監測系統）
+  // 獲取三相資料（從大葉大學機械系 H707 教室電能監測系統）
   async getThreePhaseData() {
     try {
-      // 使用大葉大學的 ThingSpeak Channel (2521976)
-      // 這個 channel 記錄 H831-1 實驗室的電能監測資料
-      const channelId = '2521976'
-      const url = `https://api.thingspeak.com/channels/${channelId}/feeds.json?results=1`
+      // 使用三相專用的 API 金鑰和 Channel ID (教室 H707)
+      const url = `https://api.thingspeak.com/channels/${import.meta.env.VITE_THINGSPEAK_CHANNEL_ID_THREE}/feeds.json?api_key=${import.meta.env.VITE_THINGSPEAK_API_KEY_THREE}&results=1`
 
-      console.log('📊 獲取三相資料 API 請求 URL:', url)
+      console.log('📊 獲取三相資料 API 請求 URL:', url.replace(import.meta.env.VITE_THINGSPEAK_API_KEY_THREE, '***'))
 
       const response = await fetch(url)
       console.log('📡 三相資料 API 回應狀態:', response.status, response.statusText)

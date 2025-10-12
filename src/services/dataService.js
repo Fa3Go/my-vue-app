@@ -213,11 +213,7 @@ class DataService {
       }
 
       // 判斷是單日還是多日
-      const isSingleDay = daysDiff <= 1 || !startDate || !endDate
-
-      // 如果使用了 average=daily,ThingSpeak 已經幫我們計算好每日數據了
-      // 不需要再手動分組
-      let processedFeeds = result.feeds
+      const isSingleDay = daysDiff <= 1 && startDate && endDate
 
       // 格式化歷史資料
       const historyData = {
@@ -230,6 +226,86 @@ class DataService {
         carbonEmission: []
       }
 
+      // 單日模式：按小時分組顯示 24 小時數據
+      if (isSingleDay) {
+        console.log('📊 單日模式：處理小時數據')
+
+        // 取得當日 00:00 的碳排放基準值（第一筆數據）
+        const todayStartCarbonValue = result.feeds.length > 0 ? (Number(result.feeds[0].field7) || 0) : 0
+        console.log(`📊 今日碳排放基準值: ${todayStartCarbonValue}`)
+
+        // 按小時分組
+        const hourlyData = new Map()
+
+        result.feeds.forEach(feed => {
+          const timestamp = new Date(feed.created_at)
+          const hour = timestamp.getHours()
+
+          if (!hourlyData.has(hour)) {
+            hourlyData.set(hour, [])
+          }
+
+          hourlyData.get(hour).push({
+            voltage: Number(feed.field1) || 0,
+            current: Number(feed.field2) || 0,
+            power: Number(feed.field3) || 0,
+            energy: Number(feed.field4) || 0,
+            frequency: Number(feed.field5) || 0,
+            powerFactor: Number(feed.field6) || 0,
+            carbonEmission: Number(feed.field7) || 0
+          })
+        })
+
+        // 生成完整的 24 小時數據
+        for (let hour = 0; hour < 24; hour++) {
+          const hourKey = `${String(hour).padStart(2, '0')}:00`
+
+          if (hourlyData.has(hour)) {
+            // 該小時有數據，取平均值
+            const feeds = hourlyData.get(hour)
+            const avg = {
+              voltage: feeds.reduce((sum, f) => sum + f.voltage, 0) / feeds.length,
+              current: feeds.reduce((sum, f) => sum + f.current, 0) / feeds.length,
+              power: feeds.reduce((sum, f) => sum + f.power, 0) / feeds.length,
+              energy: feeds.reduce((sum, f) => sum + f.energy, 0) / feeds.length,
+              frequency: feeds.reduce((sum, f) => sum + f.frequency, 0) / feeds.length,
+              powerFactor: feeds.reduce((sum, f) => sum + f.powerFactor, 0) / feeds.length,
+              carbonEmission: feeds.reduce((sum, f) => sum + f.carbonEmission, 0) / feeds.length
+            }
+
+            // 碳排放：計算該小時累積值相對於今日 00:00 的增量
+            const carbonIncrement = Math.max(0, avg.carbonEmission - todayStartCarbonValue)
+
+            historyData.voltage.push({ time: hourKey, value: avg.voltage })
+            historyData.current.push({ time: hourKey, value: avg.current })
+            historyData.power.push({ time: hourKey, value: avg.power })
+            historyData.energy.push({ time: hourKey, value: avg.energy })
+            historyData.frequency.push({ time: hourKey, value: avg.frequency })
+            historyData.powerFactor.push({ time: hourKey, value: avg.powerFactor })
+            historyData.carbonEmission.push({ time: hourKey, value: carbonIncrement })
+          } else {
+            // 該小時沒有數據，填充 0
+            historyData.voltage.push({ time: hourKey, value: 0 })
+            historyData.current.push({ time: hourKey, value: 0 })
+            historyData.power.push({ time: hourKey, value: 0 })
+            historyData.energy.push({ time: hourKey, value: 0 })
+            historyData.frequency.push({ time: hourKey, value: 0 })
+            historyData.powerFactor.push({ time: hourKey, value: 0 })
+            historyData.carbonEmission.push({ time: hourKey, value: 0 })
+          }
+        }
+
+        console.log(`✅ 單日模式完成，生成 ${historyData.voltage.length} 小時數據`)
+
+        return {
+          status: 'success',
+          message: '歷史資料獲取成功',
+          data: historyData,
+          mode: 'hourly'
+        }
+      }
+
+      // 多日模式：按日期處理
       // 儲存碳排放累積值用於計算增量
       let previousCarbonValue = null
 
@@ -247,7 +323,7 @@ class DataService {
       // 第一步：收集所有數據並計算碳排放增量
       const feedDataMap = new Map() // 存儲每個日期的完整數據
 
-      processedFeeds.forEach((feed) => {
+      result.feeds.forEach((feed) => {
         const feedDate = feed.created_at.split('T')[0] // YYYY-MM-DD
         const [, month, day] = feedDate.split('-')
         const time = `${month}/${day}`
