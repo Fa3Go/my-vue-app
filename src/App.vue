@@ -5,7 +5,7 @@ import ThreePhaseMonitor from './components/ThreePhaseMonitor.vue'
 import RealTimeChart from './components/RealTimeChart.vue'
 import AIAgent from './components/AIAgent.vue'
 import CarbonEmissionChart from './components/CarbonEmissionChart.vue'
-import { Monitor, Refresh, Setting, DataAnalysis, Download, Expand, Fold } from '@element-plus/icons-vue'
+import { Monitor, Refresh, Setting, DataAnalysis, Download, Expand, Fold, Histogram } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import dataManager from './services/dataManager.js'
 import dataService from './services/dataService.js'
@@ -16,6 +16,9 @@ const dateRange = ref([])
 
 // 側邊欄收縮狀態
 const isCollapsed = ref(false)
+
+// 註冊圖標組件供動態使用
+const iconComponents = { Expand, Fold, Histogram }
 
 // 系統概覽顯示類型
 const overviewType = ref('single') // 'single' 或 'three'
@@ -646,7 +649,7 @@ onUnmounted(() => {
           <div v-if="activePage === 'realtime'" class="page-content">
             <el-row :gutter="20">
               <!-- 系統概覽卡片 -->
-              <el-col :span="24">
+              <el-col :xs="24" :sm="24" :md="24" :lg="24">
                 <el-card class="overview-card">
                   <template #header>
                     <div class="card-header">
@@ -661,37 +664,37 @@ onUnmounted(() => {
                     </div>
                   </template>
                   <el-row :gutter="20">
-                    <el-col :span="4">
+                    <el-col :xs="12" :sm="8" :md="4" :lg="4">
                       <div class="metric-item">
                         <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.voltage : threePhaseData.voltage }} V</div>
                         <div class="metric-label">電壓</div>
                       </div>
                     </el-col>
-                    <el-col :span="4">
+                    <el-col :xs="12" :sm="8" :md="4" :lg="4">
                       <div class="metric-item">
                         <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.current : threePhaseData.current }} A</div>
                         <div class="metric-label">電流</div>
                       </div>
                     </el-col>
-                    <el-col :span="4">
+                    <el-col :xs="12" :sm="8" :md="4" :lg="4">
                       <div class="metric-item">
                         <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.power : threePhaseData.power }} W</div>
                         <div class="metric-label">功率</div>
                       </div>
                     </el-col>
-                    <el-col :span="4">
+                    <el-col :xs="12" :sm="8" :md="4" :lg="4">
                       <div class="metric-item">
                         <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.energy : threePhaseData.energy }} kWh</div>
                         <div class="metric-label">用電量</div>
                       </div>
                     </el-col>
-                    <el-col :span="4">
+                    <el-col :xs="12" :sm="8" :md="4" :lg="4">
                       <div class="metric-item">
                         <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.frequency : threePhaseData.frequency }} Hz</div>
                         <div class="metric-label">頻率</div>
                       </div>
                     </el-col>
-                    <el-col :span="4">
+                    <el-col :xs="12" :sm="8" :md="4" :lg="4">
                       <div class="metric-item">
                         <div class="metric-value">{{ overviewType === 'single' ? singlePhaseData.carbonEmission : threePhaseData.carbonEmission }} kgCO₂e</div>
                         <div class="metric-label">碳排放</div>
@@ -704,11 +707,11 @@ onUnmounted(() => {
 
             <el-row :gutter="20" style="margin-top: 20px;">
               <!-- 單相電力監測 -->
-              <el-col :span="12">
+              <el-col :xs="24" :sm="24" :md="12" :lg="12">
                 <el-card class="monitoring-card">
                   <template #header>
                     <div class="card-header">
-                      <span>單相220V電力監測</span>
+                      <span>單相110V電力監測</span>
                       <el-tag type="success">即時資料</el-tag>
                     </div>
                   </template>
@@ -717,7 +720,7 @@ onUnmounted(() => {
               </el-col>
 
               <!-- 三相電力監測 -->
-              <el-col :span="12">
+              <el-col :xs="24" :sm="24" :md="12" :lg="12">
                 <el-card class="monitoring-card">
                   <template #header>
                     <div class="card-header">
@@ -732,7 +735,7 @@ onUnmounted(() => {
 
             <el-row :gutter="20" style="margin-top: 20px;">
               <!-- 單相實時數據圖表 -->
-              <el-col :span="12">
+              <el-col :xs="24" :sm="24" :md="12" :lg="12">
                 <el-card class="chart-card">
                   <template #header>
                     <div class="card-header">
@@ -756,7 +759,7 @@ onUnmounted(() => {
               </el-col>
 
               <!-- 三相實時數據圖表 -->
-              <el-col :span="12">
+              <el-col :xs="24" :sm="24" :md="12" :lg="12">
                 <el-card class="chart-card">
                   <template #header>
                     <div class="card-header">
@@ -812,7 +815,7 @@ onUnmounted(() => {
                 <!-- 單相歷史數據 -->
                 <div v-if="historyDataType === 'single'" class="single-history">
                   <el-row :gutter="20">
-                    <el-col :span="12">
+                    <el-col :xs="24" :sm="24" :md="12" :lg="12">
                       <el-card class="history-chart-card">
                         <template #header>
                           <div class="chart-header">
@@ -823,7 +826,7 @@ onUnmounted(() => {
                         <RealTimeChart type="voltage" :data="historyData.single.voltage" />
                       </el-card>
                     </el-col>
-                    <el-col :span="12">
+                    <el-col :xs="24" :sm="24" :md="12" :lg="12">
                       <el-card class="history-chart-card">
                         <template #header>
                           <div class="chart-header">
@@ -835,9 +838,9 @@ onUnmounted(() => {
                       </el-card>
                     </el-col>
                   </el-row>
-                  
+
                   <el-row :gutter="20" style="margin-top: 20px;">
-                    <el-col :span="12">
+                    <el-col :xs="24" :sm="24" :md="12" :lg="12">
                       <el-card class="history-chart-card">
                         <template #header>
                           <div class="chart-header">
@@ -848,7 +851,7 @@ onUnmounted(() => {
                         <RealTimeChart type="power" :data="historyData.single.power" />
                       </el-card>
                     </el-col>
-                    <el-col :span="12">
+                    <el-col :xs="24" :sm="24" :md="12" :lg="12">
                       <el-card class="history-chart-card">
                         <template #header>
                           <div class="chart-header">
@@ -862,7 +865,7 @@ onUnmounted(() => {
                   </el-row>
 
                   <el-row :gutter="20" style="margin-top: 20px;">
-                    <el-col :span="12">
+                    <el-col :xs="24" :sm="24" :md="12" :lg="12">
                       <el-card class="history-chart-card">
                         <template #header>
                           <div class="chart-header">
@@ -873,7 +876,7 @@ onUnmounted(() => {
                         <RealTimeChart type="frequency" :data="historyData.single.frequency" />
                       </el-card>
                     </el-col>
-                    <el-col :span="12">
+                    <el-col :xs="24" :sm="24" :md="12" :lg="12">
                       <el-card class="history-chart-card">
                         <template #header>
                           <div class="chart-header">
@@ -887,7 +890,7 @@ onUnmounted(() => {
                   </el-row>
 
                   <el-row :gutter="20" style="margin-top: 20px;">
-                    <el-col :span="24">
+                    <el-col :xs="24" :sm="24" :md="24" :lg="24">
                       <el-card class="history-chart-card">
                         <template #header>
                           <div class="chart-header">
@@ -905,7 +908,7 @@ onUnmounted(() => {
                 <div v-else class="three-history">
                   <!-- 電壓歷史趨勢 -->
                   <el-row :gutter="20">
-                    <el-col :span="12">
+                    <el-col :xs="24" :sm="24" :md="12" :lg="12">
                       <el-card class="history-chart-card">
                         <template #header>
                           <div class="chart-header">
@@ -983,7 +986,7 @@ onUnmounted(() => {
 
                   <!-- 碳排放量歷史趨勢 -->
                   <el-row :gutter="20" style="margin-top: 20px;">
-                    <el-col :span="24">
+                    <el-col :xs="24" :sm="24" :md="24" :lg="24">
                       <el-card class="history-chart-card">
                         <template #header>
                           <div class="chart-header">
@@ -1030,7 +1033,7 @@ onUnmounted(() => {
               
               <div class="download-content">
                 <el-row :gutter="20">
-                  <el-col :span="12">
+                  <el-col :xs="24" :sm="24" :md="12" :lg="12">
                     <el-card class="download-option-card">
                       <template #header>
                         <div class="download-option-header">
@@ -1045,8 +1048,8 @@ onUnmounted(() => {
                       </div>
                     </el-card>
                   </el-col>
-                  
-                  <el-col :span="12">
+
+                  <el-col :xs="24" :sm="24" :md="12" :lg="12">
                     <el-card class="download-option-card">
                       <template #header>
                         <div class="download-option-header">
@@ -1067,9 +1070,9 @@ onUnmounted(() => {
                     </el-card>
                   </el-col>
                 </el-row>
-                
+
                 <el-row style="margin-top: 20px;">
-                  <el-col :span="24">
+                  <el-col :xs="24" :sm="24" :md="24" :lg="24">
                     <el-card class="download-info-card">
                       <template #header>
                         <div class="download-info-header">
@@ -1101,6 +1104,42 @@ onUnmounted(() => {
           </div>
         </el-main>
       </el-container>
+
+      <!-- 底部導覽列 (手機/平板) -->
+      <nav class="bottom-nav">
+        <div
+          class="bottom-nav-item"
+          :class="{ active: activePage === 'realtime' }"
+          @click="handlePageChange('realtime')"
+        >
+          <el-icon class="bottom-nav-icon"><Monitor /></el-icon>
+          <span class="bottom-nav-label">即時監測</span>
+        </div>
+        <div
+          class="bottom-nav-item"
+          :class="{ active: activePage === 'history' }"
+          @click="handlePageChange('history')"
+        >
+          <el-icon class="bottom-nav-icon"><Histogram /></el-icon>
+          <span class="bottom-nav-label">歷史分析</span>
+        </div>
+        <div
+          class="bottom-nav-item"
+          :class="{ active: activePage === 'carbon' }"
+          @click="handlePageChange('carbon')"
+        >
+          <el-icon class="bottom-nav-icon"><DataAnalysis /></el-icon>
+          <span class="bottom-nav-label">碳排放</span>
+        </div>
+        <div
+          class="bottom-nav-item"
+          :class="{ active: activePage === 'download' }"
+          @click="handlePageChange('download')"
+        >
+          <el-icon class="bottom-nav-icon"><Download /></el-icon>
+          <span class="bottom-nav-label">資料下載</span>
+        </div>
+      </nav>
     </el-container>
 
     <!-- AI 助手 -->
@@ -1358,5 +1397,298 @@ onUnmounted(() => {
   margin-bottom: 15px;
   padding: 10px 0;
   border-bottom: 1px solid #e8f5e8;
+}
+
+/* 底部導覽列 (手機/平板用) */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background-color: #2c3e50;
+  border-top: 2px solid #34495e;
+  z-index: 1000;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  height: 100%;
+  cursor: pointer;
+  color: #8e9eab;
+  transition: all 0.3s;
+  padding: 8px 0;
+}
+
+.bottom-nav-item:hover {
+  color: #4CAF50;
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.bottom-nav-item.active {
+  color: #4CAF50;
+  background-color: rgba(76, 175, 80, 0.1);
+}
+
+.bottom-nav-icon {
+  font-size: 22px;
+  margin-bottom: 3px;
+}
+
+.bottom-nav-label {
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* ==================== 響應式設計 (RWD) ==================== */
+
+/* 平板設備 (768px - 1024px) */
+@media screen and (max-width: 1024px) {
+  .app-title {
+    font-size: 20px;
+  }
+
+  .header-info {
+    margin-left: 10px;
+  }
+
+  .classroom-tag {
+    font-size: 16px !important;
+    padding: 6px 12px !important;
+  }
+
+  .metric-value {
+    font-size: 24px;
+  }
+
+  .metric-label {
+    font-size: 12px;
+  }
+
+  .app-main {
+    padding: 15px;
+    padding-bottom: 75px;
+  }
+
+  /* 隱藏側邊欄，改用底部導覽列 */
+  .sidebar {
+    display: none !important;
+  }
+
+  .bottom-nav {
+    display: flex;
+  }
+}
+
+/* 手機設備 (最大 768px) */
+@media screen and (max-width: 768px) {
+  /* 頭部樣式調整 */
+  .header-content {
+    padding: 0 10px;
+    flex-wrap: wrap;
+  }
+
+  .app-title {
+    font-size: 16px;
+    gap: 5px;
+  }
+
+  .app-title .el-icon {
+    font-size: 20px;
+  }
+
+  .header-info {
+    margin-left: 5px;
+  }
+
+  .classroom-tag {
+    font-size: 12px !important;
+    padding: 4px 8px !important;
+  }
+
+  .header-actions {
+    gap: 5px;
+  }
+
+  .header-actions .el-button {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .header-actions .el-button span:not(.el-icon) {
+    display: none;
+  }
+
+  /* 主內容區域 */
+  .app-main {
+    padding: 10px;
+    padding-bottom: 70px;
+  }
+
+  /* 卡片標題 */
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .card-header span {
+    font-size: 16px;
+  }
+
+  /* 系統概覽卡片 - 改為縱向堆疊 */
+  .overview-controls {
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  /* 指標項目調整 */
+  .metric-item {
+    padding: 12px;
+  }
+
+  .metric-value {
+    font-size: 18px;
+  }
+
+  .metric-label {
+    font-size: 11px;
+  }
+
+  /* 歷史數據控制項 */
+  .history-controls {
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .history-controls .el-date-picker {
+    width: 100%;
+  }
+
+  /* 下載按鈕 */
+  .download-buttons {
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .download-buttons .el-button {
+    width: 100%;
+  }
+
+  /* 圖表控制項 - 改為可滾動 */
+  .chart-controls {
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .chart-controls .el-radio-group {
+    display: inline-flex;
+  }
+
+  .chart-controls .el-radio-button {
+    font-size: 11px;
+  }
+
+  /* 下載選項調整 */
+  .download-options .el-radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* 內容最小高度調整 */
+  .history-content,
+  .download-content {
+    min-height: 200px;
+  }
+}
+
+/* 小手機設備 (最大 480px) */
+@media screen and (max-width: 480px) {
+  .app-title {
+    font-size: 14px;
+  }
+
+  .classroom-tag {
+    font-size: 10px !important;
+    padding: 3px 6px !important;
+  }
+
+  .header-actions .el-button {
+    padding: 6px 8px;
+  }
+
+  .app-main {
+    padding: 8px;
+    padding-bottom: 70px;
+  }
+
+  .card-header span {
+    font-size: 14px;
+  }
+
+  .metric-item {
+    padding: 10px;
+  }
+
+  .metric-value {
+    font-size: 16px;
+  }
+
+  .metric-label {
+    font-size: 10px;
+  }
+
+  .chart-controls .el-radio-button {
+    font-size: 10px;
+    padding: 5px 8px;
+  }
+
+  /* 系統概覽網格改為更小的列 */
+  .overview-card .el-row .el-col {
+    margin-bottom: 10px;
+  }
+}
+
+/* 橫向模式優化 (手機橫屏) */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+  .app-header {
+    height: 50px;
+  }
+
+  .sidebar-top {
+    height: 50px;
+  }
+
+  .app-main {
+    height: calc(100vh - 50px);
+  }
+
+  .metric-item {
+    padding: 8px;
+  }
+
+  .metric-value {
+    font-size: 16px;
+    margin-bottom: 2px;
+  }
+
+  .metric-label {
+    font-size: 10px;
+  }
 }
 </style>
