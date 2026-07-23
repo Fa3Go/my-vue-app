@@ -37,7 +37,7 @@
                 <h3 class="header-title">AI 電力監測助手</h3>
                 <div class="header-status">
                   <span class="status-indicator" :class="{ active: isApiReady }"></span>
-                  <span class="status-text">{{ USE_MOCK_RESPONSE ? '離線模式' : '在線' }}</span>
+                  <span class="status-text">{{ USE_MOCK_RESPONSE ? '離線模式' : USE_AI_SERVER ? 'AI Server' : 'Gemini' }}</span>
                 </div>
               </div>
             </div>
@@ -160,8 +160,11 @@ const hasUnread = ref(false)
 
 // API Configuration
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
+const AI_SERVER_URL = import.meta.env.VITE_AI_SERVER_URL || 'http://localhost:8001'
 const USE_MOCK_RESPONSE = ref(false)
+const USE_AI_SERVER = ref(false)
 const isApiReady = ref(true)
+const sessionId = ref(null)
 
 const quickQuestions = [
   '三項電力電壓是否正常？',
@@ -204,6 +207,22 @@ const clearMessages = () => {
 const sendQuickQuestion = (question) => {
   userInput.value = question
   sendMessage()
+}
+
+const callAiServer = async (question) => {
+  const body = { message: question }
+  if (sessionId.value) body.session_id = sessionId.value
+  const res = await fetch(`${AI_SERVER_URL}/ai/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000)
+  })
+  if (!res.ok) throw new Error(`AI Server HTTP ${res.status}`)
+  const data = await res.json()
+  if (!data.answer) throw new Error('No answer from AI Server')
+  sessionId.value = data.session_id
+  return data.answer
 }
 
 const callGeminiAPI = async (question) => {
@@ -254,7 +273,7 @@ const callGeminiAPI = async (question) => {
 - 使用表情符號標記狀態（✅ 正常 / ⚠️ 注意 / ❌ 異常）`
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -263,7 +282,8 @@ const callGeminiAPI = async (question) => {
         generationConfig: {
           temperature: 0.7,
           topP: 0.95,
-          maxOutputTokens: 256
+          maxOutputTokens: 256,
+          thinkingConfig: { thinkingBudget: 0 }
         }
       })
     }
@@ -395,12 +415,13 @@ const sendMessage = async () => {
   try {
     let response
     if (USE_MOCK_RESPONSE.value) {
-      // 使用離線模式
       console.log('📴 使用離線模式')
       await new Promise(resolve => setTimeout(resolve, 600))
       response = getMockResponse(question)
+    } else if (USE_AI_SERVER.value) {
+      console.log('🤖 呼叫 AI Server...')
+      response = await callAiServer(question)
     } else {
-      // 使用真實 Gemini API
       console.log('🌐 呼叫 Gemini API...')
       response = await callGeminiAPI(question)
     }
@@ -432,6 +453,20 @@ const sendMessage = async () => {
 
 // Check API on mount
 onMounted(async () => {
+  // 優先嘗試 AI Server
+  try {
+    const res = await fetch(`${AI_SERVER_URL}/ai/analyze`, { signal: AbortSignal.timeout(3000) })
+    if (res.ok) {
+      console.log('✅ AI Server 連接成功')
+      USE_AI_SERVER.value = true
+      USE_MOCK_RESPONSE.value = false
+      return
+    }
+  } catch {
+    console.warn('⚠️ AI Server 無法連接，嘗試 Gemini API')
+  }
+
+  // 嘗試 Gemini API
   if (!GEMINI_API_KEY) {
     console.log('🔌 未設置 API 金鑰，使用離線模式')
     USE_MOCK_RESPONSE.value = true
@@ -439,28 +474,24 @@ onMounted(async () => {
   }
 
   try {
-    console.log('🔍 檢查 Gemini API 連接...')
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: 'hi' }] }],
-          generationConfig: { maxOutputTokens: 10 }
+          generationConfig: { maxOutputTokens: 10, thinkingConfig: { thinkingBudget: 0 } }
         })
       }
     )
-
     if (response.ok) {
-      console.log('✅ Gemini API 連接成功，使用在線模式')
+      console.log('✅ Gemini API 連接成功')
       USE_MOCK_RESPONSE.value = false
     } else {
-      console.warn('⚠️ API 回應異常，使用離線模式')
       USE_MOCK_RESPONSE.value = true
     }
-  } catch (error) {
-    console.warn('⚠️ 無法連接 API，使用離線模式', error)
+  } catch {
     USE_MOCK_RESPONSE.value = true
   }
 })

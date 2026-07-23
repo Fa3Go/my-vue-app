@@ -1,6 +1,8 @@
 // 資料管理服務
 import thingSpeakService from './thingspeak.js'
+import dataService from './dataService.js'
 import { getConfig, validateConfig } from '../config/thingspeak.config.js'
+import powerApiService, { DEVICE_ID } from './powerApiService.js'
 
 class DataManager {
   constructor() {
@@ -30,12 +32,21 @@ class DataManager {
   }
 
   async init() {
-    // 檢查 ThingSpeak 配置
-    if (this.isThingSpeakEnabled) {
+    // 優先嘗試連接 Power API Server
+    const powerApiOk = await powerApiService.checkConnection()
+    if (powerApiOk) {
+      console.log('✅ Power API Server 連接成功，使用 Power API 資料')
+      this.isPowerApiEnabled = true
+    } else {
+      console.warn('⚠️ Power API Server 無法連接，嘗試 ThingSpeak')
+      this.isPowerApiEnabled = false
+    }
+
+    // 檢查 ThingSpeak 配置（作為備用）
+    if (!this.isPowerApiEnabled && this.isThingSpeakEnabled) {
       const isValid = validateConfig()
       if (isValid) {
         await this.checkThingSpeakConnection()
-        // 初始化當日碳排放基準值（單相和三相分別初始化）
         await this.initSinglePhaseCarbonBaseline()
         await this.initThreePhaseCarbonBaseline()
       } else {
@@ -43,6 +54,9 @@ class DataManager {
         this.isThingSpeakEnabled = false
       }
     }
+
+    // 立即抓取一次資料，避免等待第一次輪詢間隔（預設 30 秒）才有資料可顯示
+    await this.updateAllData()
 
     // 啟動資料更新
     this.startDataUpdate()
@@ -160,19 +174,34 @@ class DataManager {
   // 更新所有資料
   async updateAllData() {
     try {
-      // console.log('🔄 開始更新資料...')
-
-      // 只使用 ThingSpeak 真實資料，不使用 mock data
-      if (this.isThingSpeakEnabled) {
+      if (this.isPowerApiEnabled) {
+        await this.updatePowerApiData()
+        this.lastUpdate = new Date()
+      } else if (this.isThingSpeakEnabled) {
         await this.updateThingSpeakData()
         this.lastUpdate = new Date()
-        // console.log('✅ 資料更新成功')
-      } else {
-        // console.warn('⚠️ ThingSpeak 未啟用，無法獲取資料')
       }
     } catch (error) {
-      // console.error('❌ 更新資料失敗:', error)
-      // 不使用 mock data，保持資料為空或上次的值
+      console.error('❌ 更新資料失敗:', error)
+    }
+  }
+
+  // 從 Power API Server 更新資料
+  async updatePowerApiData() {
+    const [singleData, threeData] = await Promise.all([
+      powerApiService.getSinglePhaseLatest(),
+      powerApiService.getThreePhaseLatest()
+    ])
+
+    if (singleData) {
+      try { singleData.carbonEmission = await powerApiService.getTodayCo2e(DEVICE_ID.SINGLE) } catch { /* keep original */ }
+      this.cacheData('singlePhase', singleData)
+      this.cacheData('systemStatus', singleData)
+    }
+
+    if (threeData) {
+      try { threeData.carbonEmission = await powerApiService.getTodayCo2e(DEVICE_ID.THREE) } catch { /* keep original */ }
+      this.cacheData('threePhase', threeData)
     }
   }
 
@@ -270,6 +299,26 @@ class DataManager {
         // console.warn('⚠️ 未獲取到三相 ThingSpeak 數據')
       }
 
+      // 獲取單相 220V 資料（獨立公開頻道，尚無當日增量基準，直接快取最新讀值）
+      try {
+        const single220Result = await dataService.getSingle220PhaseData()
+        if (single220Result.status === 'success' && single220Result.data) {
+          const d = single220Result.data
+          this.cacheData('single220Phase', {
+            voltage: parseFloat((d.voltage || 0).toFixed(2)),
+            current: parseFloat((d.current || 0).toFixed(2)),
+            power: parseFloat((d.power || 0).toFixed(2)),
+            energy: parseFloat((d.energy || 0).toFixed(2)),
+            frequency: parseFloat((d.frequency || 0).toFixed(2)),
+            powerFactor: parseFloat((d.powerFactor || 0).toFixed(2)),
+            carbonEmission: parseFloat((d.carbonEmission || 0).toFixed(2)),
+            timestamp: d.timestamp
+          })
+        }
+      } catch (error) {
+        console.warn('⚠️ 單相220V ThingSpeak 數據獲取失敗:', error)
+      }
+
     } catch (error) {
       // console.error('❌ 從 ThingSpeak 獲取資料失敗:', error)
       throw error
@@ -332,6 +381,11 @@ class DataManager {
     return this.getCachedData('threePhase')
   }
 
+  // 獲取單相 220V 資料
+  getSingle220PhaseData() {
+    return this.getCachedData('single220Phase')
+  }
+
   // 獲取系統狀態
   getSystemStatus() {
     return this.getCachedData('systemStatus')
@@ -339,21 +393,27 @@ class DataManager {
 
   // 獲取歷史資料
   async getHistoricalData(type, chartType, results = 100, startDate = null, endDate = null) {
+    if (this.isPowerApiEnabled) {
+      try {
+        const deviceId = type === 'single' ? DEVICE_ID.SINGLE : DEVICE_ID.THREE
+        const result = await powerApiService.getHistoricalData(deviceId, startDate, endDate)
+        if (result.status === 'success') return result.data[chartType] || []
+      } catch (error) {
+        console.error('獲取 Power API 歷史資料失敗:', error)
+      }
+    }
+
     if (this.isThingSpeakEnabled && this.connectionStatus === 'connected') {
       try {
-        // 根據類型和圖表類型確定要獲取的欄位
         const fields = this.getFieldsForChartType(type, chartType)
         const data = await thingSpeakService.getHistoricalData(fields, results, startDate, endDate)
         return this.formatHistoricalDataForChart(data, chartType)
       } catch (error) {
         console.error('獲取 ThingSpeak 歷史資料失敗:', error)
-        // 回退到模擬資料
-        return this.generateMockHistoricalData(type, chartType, results)
       }
-    } else {
-      // 使用模擬資料
-      return this.generateMockHistoricalData(type, chartType, results)
     }
+
+    return this.generateMockHistoricalData(type, chartType, results)
   }
 
   // 根據圖表類型獲取欄位
@@ -439,6 +499,7 @@ class DataManager {
   // 獲取連接狀態
   getConnectionStatus() {
     return {
+      powerApi: this.isPowerApiEnabled ? 'connected' : 'disconnected',
       thingSpeak: this.connectionStatus,
       mockData: this.isMockDataEnabled,
       lastUpdate: this.lastUpdate

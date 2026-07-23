@@ -1,4 +1,6 @@
 // 資料管理服務
+import powerApiService, { DEVICE_ID } from './powerApiService.js'
+
 class DataService {
   constructor() {
     this.singlePhaseConfig = {
@@ -10,11 +12,17 @@ class DataService {
       apiKey: import.meta.env.VITE_THINGSPEAK_API_KEY_THREE,
       channelId: import.meta.env.VITE_THINGSPEAK_CHANNEL_ID_THREE
     }
+
+    // 單相 220V（公開頻道，不需要 API Key）
+    this.single220Config = {
+      apiKey: import.meta.env.VITE_THINGSPEAK_API_KEY_SINGLE220 || '',
+      channelId: import.meta.env.VITE_THINGSPEAK_CHANNEL_ID_SINGLE220
+    }
   }
 
-  // 檢查配置是否完整
+  // 檢查配置是否完整（公開頻道不需要 API Key，只要求 channelId）
   isConfigValid(config) {
-    return config.apiKey && config.channelId
+    return !!config.channelId
   }
 
   // 獲取單相資料
@@ -139,14 +147,94 @@ class DataService {
     }
   }
 
-  // 獲取歷史資料
-  async getHistoricalData(type, results = 100, startDate = null, endDate = null) {
-    const config = type === 'single' ? this.singlePhaseConfig : this.threePhaseConfig
-
-    if (!this.isConfigValid(config)) {
+  // 獲取單相 220V 資料
+  async getSingle220PhaseData() {
+    if (!this.isConfigValid(this.single220Config)) {
       return {
         status: 'not_configured',
-        message: `未設定${type === 'single' ? '單相' : '三相'} API`,
+        message: '未設定單相220V API',
+        data: null
+      }
+    }
+
+    try {
+      const url = `https://api.thingspeak.com/channels/${this.single220Config.channelId}/feeds.json?api_key=${this.single220Config.apiKey}&results=10`
+      const response = await fetch(url)
+      const result = await response.json()
+
+      if (!result.feeds || result.feeds.length === 0) {
+        return {
+          status: 'no_data',
+          message: '暫無資料',
+          data: null
+        }
+      }
+
+      // 獲取最新資料
+      const latestFeed = result.feeds[result.feeds.length - 1]
+      const data = {
+        voltage: Number(latestFeed.field1) || 0,
+        current: Number(latestFeed.field2) || 0,
+        power: Number(latestFeed.field3) || 0,
+        energy: Number(latestFeed.field4) || 0,
+        frequency: Number(latestFeed.field5) || 0,
+        powerFactor: Number(latestFeed.field6) || 0,
+        carbonEmission: Number(latestFeed.field7) || 0,
+        timestamp: latestFeed.created_at
+      }
+
+      return {
+        status: 'success',
+        message: '資料獲取成功',
+        data: data,
+        chartData: result.feeds.map(feed => ({
+          time: new Date(feed.created_at).toLocaleTimeString(),
+          voltage: Number(feed.field1) || 0,
+          current: Number(feed.field2) || 0,
+          power: Number(feed.field3) || 0,
+          energy: Number(feed.field4) || 0,
+          frequency: Number(feed.field5) || 0,
+          powerFactor: Number(feed.field6) || 0,
+          carbonEmission: Number(feed.field7) || 0
+        }))
+      }
+    } catch (error) {
+      console.error('單相220V資料獲取失敗:', error)
+      return {
+        status: 'error',
+        message: '資料獲取失敗',
+        data: null
+      }
+    }
+  }
+
+  // 獲取歷史資料
+  async getHistoricalData(type, results = 100, startDate = null, endDate = null) {
+    // 單相220V 目前只有 ThingSpeak 頻道，尚無對應的 Power API 裝置
+    if (type !== 'single220' && powerApiService.isAvailable) {
+      try {
+        const deviceId = type === 'single' ? DEVICE_ID.SINGLE : DEVICE_ID.THREE
+        const result = await powerApiService.getHistoricalData(deviceId, startDate, endDate)
+        if (result.status === 'success') {
+          console.log(`✅ 歷史資料來自 Power API (${result.mode})`)
+          return result
+        }
+      } catch (e) {
+        console.warn('⚠️ Power API 歷史資料失敗，改用 ThingSpeak', e)
+      }
+    }
+
+    const config = type === 'single'
+      ? this.singlePhaseConfig
+      : type === 'single220'
+        ? this.single220Config
+        : this.threePhaseConfig
+
+    if (!this.isConfigValid(config)) {
+      const typeLabel = type === 'single' ? '單相110V' : type === 'single220' ? '單相220V' : '三相'
+      return {
+        status: 'not_configured',
+        message: `未設定${typeLabel} API`,
         data: null
       }
     }

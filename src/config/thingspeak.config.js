@@ -36,6 +36,17 @@ export const thingSpeakConfig = {
       carbonEmission: 'field14'   // 三相碳排放量 (kgCO2e)
     },
 
+    // 單相 220V 資料欄位映射（獨立頻道，欄位順序與單相110V相同）
+    single220: {
+      voltage: 'field1',      // 電壓 (V)
+      current: 'field2',      // 電流 (A)
+      power: 'field3',        // 功率 (W)
+      energy: 'field4',       // 用電量 (kWh)
+      frequency: 'field5',    // 頻率 (Hz)
+      powerFactor: 'field6',  // 功率因子 (pf)
+      carbonEmission: 'field7' // 碳排放量 (kgCO2e)
+    },
+
     // 系統狀態欄位映射
     systemStatus: {
       totalPower: 'field33',      // 系統總功率 (W)
