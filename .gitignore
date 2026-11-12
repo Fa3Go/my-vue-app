@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Power API Server
+server/.env
+server/.venv
+__pycache__/

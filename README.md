@@ -73,26 +73,20 @@ npm run build
 
 ```
 my-vue-app/
-├── public/                 # 靜態資源
+├── server/                # Power API Server（FastAPI，讀 power_monitoring_mqtt）
+│   ├── main.py
+│   ├── requirements.txt
+│   └── .env.example
 ├── src/
-│   ├── components/         # Vue組件
-│   │   ├── SinglePhaseMonitor.vue    # 單相監測組件
-│   │   ├── ThreePhaseMonitor.vue     # 三相監測組件
-│   │   └── RealTimeChart.vue         # 實時圖表組件
-│   ├── services/          # 服務層
-│   │   ├── thingspeak.js             # ThingSpeak API 服務
-│   │   └── dataManager.js            # 數據管理服務
-│   ├── config/            # 配置文件
-│   │   └── thingspeak.config.js      # ThingSpeak 配置
-│   ├── assets/            # 資源文件
-│   ├── App.vue            # 主應用組件
-│   ├── main.js            # 應用入口
-│   └── style.css          # 全局樣式
-├── index.html             # HTML模板
-├── package.json           # 項目配置
-├── vite.config.js         # Vite配置
-├── THINGSPEAK_SETUP.md    # ThingSpeak 設置指南
-└── config.example.js      # 配置示例文件
+│   ├── components/        # Vue組件
+│   ├── services/
+│   │   ├── powerApiService.js        # Power API 客戶端（唯一資料來源）
+│   │   ├── dataManager.js            # 即時資料輪詢與快取
+│   │   └── dataService.js            # 歷史資料
+│   ├── App.vue
+│   └── main.js
+├── vite.config.js         # 含 /api → :8000 proxy
+└── SETUP_GUIDE.md         # 設置指南與 API 契約
 ```
 
 ## 組件說明
@@ -120,45 +114,16 @@ my-vue-app/
 
 ## 數據源配置
 
-### ThingSpeak API 集成
-系統支持從 ThingSpeak 平台獲取實時電力監測數據：
-
-- **自動數據同步**: 支持實時數據獲取
-- **智能回退**: 當 API 不可用時自動切換到模擬數據
-- **數據緩存**: 減少 API 調用，提升性能
-- **字段映射**: 靈活配置數據字段對應關係
-
-詳細設置請參考 [ThingSpeak 設置指南](./THINGSPEAK_SETUP.md)
-
-### 模擬數據（開發模式）
-當 ThingSpeak 未配置或不可用時，系統使用模擬數據：
-- 每2秒自動更新數據
-- 電壓範圍：200-240V
-- 電流範圍：10-15A
-- 功率範圍：2000-2500W
-- 頻率：50-52Hz
+資料流：裝置 → MQTT → `get_data/mqtt_to_db.py` → MySQL → `server/`（Power API）→ 前端。
+前端不直接連 ThingSpeak；今日增量、每日／每月彙整、碳排放都在後端計算。
+詳見 [設置指南](./SETUP_GUIDE.md)。
 
 ## 自定義配置
-
-### ThingSpeak 配置
-1. 創建 `.env.local` 文件（參考 `config.example.js`）
-2. 配置 API 密鑰和通道 ID
-3. 調整數據更新頻率
-4. 配置字段映射（在 `src/config/thingspeak.config.js` 中）
 
 ### 數據更新頻率
 在環境變量中配置：
 ```bash
-VITE_DATA_UPDATE_INTERVAL=5000  # 5秒更新一次
-```
-
-### 數據範圍調整
-在 `src/config/thingspeak.config.js` 中配置驗證規則：
-```javascript
-validation: {
-  voltage: { min: 0, max: 500, unit: 'V' },
-  current: { min: 0, max: 100, unit: 'A' }
-}
+VITE_DATA_UPDATE_INTERVAL=10000  # 10秒更新一次
 ```
 
 ### 添加新的監測參數

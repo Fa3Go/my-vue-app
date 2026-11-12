@@ -214,22 +214,11 @@ const updateData = async () => {
     const connectionStatus = dataManager.getConnectionStatus()
     console.log('資料來源狀態:', connectionStatus)
 
-    if (systemData && systemData.timestamp) {
-      console.log('✅ 使用 ThingSpeak 資料')
-      console.log('ThingSpeak 資料:', {
-        電壓: systemData.voltage + 'V',
-        電流: systemData.current + 'A',
-        功率: systemData.power + 'W',
-        頻率: systemData.frequency + 'Hz',
-        功率因子: systemData.powerFactor + ' pf',
-        用電量: systemData.energy + 'kWh',
-        碳排放量: systemData.carbonEmission + 'kgCO₂e'
-      })
-    } else {
-      console.log('⚠️ 未獲取到 ThingSpeak 資料')
+    if (!systemData) {
+      console.log('⚠️ 未獲取到 Power API 資料')
     }
 
-    // 更新系統狀態（使用 ThingSpeak 真實資料）
+    // 更新系統狀態
     if (systemData) {
       systemStatus.value = {
         totalPower: systemData.power || 0,
@@ -242,7 +231,7 @@ const updateData = async () => {
       }
     }
 
-    // 更新單相資料（使用 ThingSpeak 真實資料）
+    // 更新單相資料
     if (singleData) {
       singlePhaseData.value = {
         voltage: singleData.voltage || 0,
@@ -255,7 +244,7 @@ const updateData = async () => {
       }
     }
 
-    // 更新三相資料（使用 ThingSpeak 真實資料）
+    // 更新三相資料
     if (threeData) {
       threePhaseData.value = {
         voltage: threeData.voltage || 0,
@@ -268,7 +257,7 @@ const updateData = async () => {
       }
     }
 
-    // 更新單相220V資料（使用 ThingSpeak 真實資料）
+    // 更新單相220V資料
     if (single220Data) {
       single220PhaseData.value = {
         voltage: single220Data.voltage || 0,
@@ -281,7 +270,7 @@ const updateData = async () => {
       }
     }
 
-    // 更新圖表資料（使用 ThingSpeak 真實資料）
+    // 更新圖表資料
     const now = new Date()
     const timeString = now.toLocaleTimeString()
 
@@ -431,12 +420,9 @@ const refreshHistoryData = async () => {
       historyData.value[type] = result.data
 
       // 顯示載入模式資訊
-      const mode = result.mode === 'hourly' ? '單日小時數據' : '多日最高數據'
+      const mode = result.mode === 'hourly' ? '單日小時數據' : '每日彙整數據'
       ElMessage.success(`${label}歷史資料載入成功 (${mode})`)
       console.log(`📊 顯示模式: ${mode}`)
-    } else if (result.status === 'not_configured') {
-      ElMessage.warning(`未設定${label} API金鑰，使用模擬資料`)
-      loadMockHistoryData(type)
     } else {
       ElMessage.warning(`${label}歷史資料載入失敗: ${result.message}`)
       loadMockHistoryData(type)

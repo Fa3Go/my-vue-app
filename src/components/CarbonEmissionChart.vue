@@ -79,7 +79,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { TrendCharts, DataAnalysis, Orange, CaretTop } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
-import powerApiService, { DEVICE_ID } from '../services/powerApiService.js'
+import powerApiService, { deviceIdByType } from '../services/powerApiService.js'
 
 // State
 const chartRef = ref(null)
@@ -111,69 +111,8 @@ const treesNeeded = computed(() => {
   return totalEmission.value / 21
 })
 
-// 計算 Power API 年模式月增量
-const processYearDataFromApi = (summaries) => {
-  const monthlyMap = new Map()
-  summaries.forEach(s => {
-    const monthKey = s.date.substring(0, 7)
-    const displayKey = monthKey.replace('-', '/')
-    const val = parseFloat(s.co2e_kg) || 0
-    monthlyMap.set(monthKey, { time: displayKey, value: val })
-  })
-
-  const sortedMonths = Array.from(monthlyMap.keys()).sort()
-  const increments = new Map()
-  let prev = null
-  sortedMonths.forEach(key => {
-    const d = monthlyMap.get(key)
-    increments.set(d.time, { time: d.time, value: prev !== null ? Math.max(0, d.value - prev) : 0 })
-    prev = d.value
-  })
-
-  const result = []
-  const now = new Date()
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const key = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`
-    result.push(increments.get(key) || { time: key, value: 0 })
-  }
-  return result
-}
-
-// 依迴路類型取得對應的 ThingSpeak 頻道 ID
-const CHANNEL_ID_BY_PHASE = {
-  single: () => import.meta.env.VITE_THINGSPEAK_CHANNEL_ID_SINGLE,
-  single220: () => import.meta.env.VITE_THINGSPEAK_CHANNEL_ID_SINGLE220,
-  three: () => import.meta.env.VITE_THINGSPEAK_CHANNEL_ID_THREE,
-}
-
-// 依目前選擇的時間範圍組出 ThingSpeak 查詢網址
-function buildThingSpeakUrl(channelId) {
-  const now = new Date()
-  if (timeRange.value === 'day') {
-    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-    return `https://api.thingspeak.com/channels/${channelId}/feeds.json?start=${start.toISOString()}`
-  } else if (timeRange.value === 'week') {
-    // 改抓原始資料（不用 ThingSpeak 的每日平均），改用每天最後一筆讀值計算增量，
-    // 才不會在裝置剛開始回報、資料不連續時被平均值拉低
-    const start = new Date(now.getTime() - 12 * 24 * 60 * 60 * 1000)
-    return `https://api.thingspeak.com/channels/${channelId}/feeds.json?start=${start.toISOString()}`
-  } else if (timeRange.value === 'month') {
-    const start = new Date(now.getTime() - 35 * 24 * 60 * 60 * 1000)
-    return `https://api.thingspeak.com/channels/${channelId}/feeds.json?start=${start.toISOString()}`
-  }
-  // year
-  return `https://api.thingspeak.com/channels/${channelId}/feeds.json?average=1440&results=400`
-}
-
-// 抓取單一迴路的碳排放時間序列（供「三迴路加總」合併使用）
-async function fetchPhaseSeries(phaseKey) {
-  const channelId = CHANNEL_ID_BY_PHASE[phaseKey]()
-  const response = await fetch(buildThingSpeakUrl(channelId))
-  if (!response.ok) throw new Error('無法獲取資料')
-  const data = await response.json()
-  return processChartData(data.feeds)
-}
+// 「三迴路加總」要合併的迴路
+const PHASE_KEYS = ['single', 'single220', 'three']
 
 // 將多組時間序列依時間點加總（缺項視為 0）
 function mergeSum(seriesList) {
@@ -186,7 +125,7 @@ function mergeSum(seriesList) {
   return Array.from(map, ([time, value]) => ({ time, value }))
 }
 
-// 載入數據
+// 載入數據（全部由 Power API 計算好各區間增量）
 const loadData = async () => {
   // 記錄本次請求的序號；若載入完成時已經有更新的請求發出，就捨棄這次的結果，
   // 避免快速切換選項時，較晚回應的舊請求覆蓋掉新選擇的正確資料
@@ -195,249 +134,22 @@ const loadData = async () => {
 
   loading.value = true
   try {
-    // 三迴路加總：分別抓取單相110V／單相220V／三相後合併，不走 Power API
+    const range = timeRange.value
+    let series
     if (phaseType.value === 'total') {
-      const [singleSeries, single220Series, threeSeries] = await Promise.all([
-        fetchPhaseSeries('single'),
-        fetchPhaseSeries('single220'),
-        fetchPhaseSeries('three'),
-      ])
-      if (isStale()) return
-      const merged = mergeSum([singleSeries, single220Series, threeSeries])
-      chartData.value = merged
-      updateChart(merged)
-      return
+      // 三迴路加總：單相110V／單相220V／三相分別取得後合併
+      const all = await Promise.all(PHASE_KEYS.map(k => powerApiService.getCarbonSeries(deviceIdByType(k), range)))
+      series = mergeSum(all)
+    } else {
+      series = await powerApiService.getCarbonSeries(deviceIdByType(phaseType.value), range)
     }
-
-    const deviceId = phaseType.value === 'single' ? DEVICE_ID.SINGLE : DEVICE_ID.THREE
-    const now = new Date()
-
-    // 單相220V 目前只有 ThingSpeak 頻道，尚無對應的 Power API 裝置
-    if (phaseType.value !== 'single220' && powerApiService.isAvailable) {
-      try {
-        if (timeRange.value === 'year') {
-          const startDate = new Date(now.getFullYear() - 1, now.getMonth(), 1)
-          const summaries = await powerApiService.getDailySummary(deviceId, startDate, now)
-          if (isStale()) return
-          if (summaries.length > 0) {
-            const processedData = processYearDataFromApi(summaries)
-            chartData.value = processedData
-            updateChart(processedData)
-            return
-          }
-        } else {
-          const daysMap = { day: 1, week: 7, month: 30 }
-          const startDate = new Date(now.getTime() - daysMap[timeRange.value] * 24 * 60 * 60 * 1000)
-          const result = await powerApiService.getHistoricalData(deviceId, startDate, now)
-          if (isStale()) return
-          if (result.status === 'success' && result.data.carbonEmission.length > 0) {
-            console.log(`✅ 碳排放資料來自 Power API`)
-            chartData.value = result.data.carbonEmission
-            updateChart(result.data.carbonEmission)
-            return
-          }
-        }
-      } catch (e) {
-        console.warn('⚠️ Power API 碳排放失敗，改用 ThingSpeak', e)
-      }
-    }
-
-    // 備用：ThingSpeak
-    const channelId = CHANNEL_ID_BY_PHASE[phaseType.value]()
-    console.log(`📊 ThingSpeak 碳排放資料 (${phaseType.value} / ${timeRange.value})`)
-    const response = await fetch(buildThingSpeakUrl(channelId))
-    if (!response.ok) throw new Error('無法獲取資料')
-    const data = await response.json()
     if (isStale()) return
-
-    const processedData = processChartData(data.feeds)
-    chartData.value = processedData
-    updateChart(processedData)
+    chartData.value = series
+    updateChart(series)
   } catch (error) {
     console.error('❌ 載入碳排放資料失敗:', error)
   } finally {
     if (!isStale()) loading.value = false
-  }
-}
-
-// 處理圖表資料
-const processChartData = (feeds) => {
-  if (!feeds || feeds.length < 2) return []
-
-  if (timeRange.value === 'day') {
-    // 日模式：按小時分組，計算每小時的增量
-    const grouped = {}
-
-    feeds.forEach(feed => {
-      // 轉換為本地時間
-      const timestamp = new Date(feed.created_at)
-      const localHour = timestamp.getHours()
-      const localDate = timestamp.getDate()
-      const localMonth = timestamp.getMonth() + 1
-
-      // 使用 "月/日 時:00" 格式，確保跨天時也能正確排序
-      const hourKey = `${localMonth}/${localDate} ${String(localHour).padStart(2, '0')}:00`
-
-      if (!grouped[hourKey]) {
-        grouped[hourKey] = {
-          values: [],
-          timestamp: timestamp.getTime()
-        }
-      }
-
-      const carbonValue = parseFloat(feed.field7)
-      // 只添加有效的數值
-      if (carbonValue && !isNaN(carbonValue)) {
-        grouped[hourKey].values.push(carbonValue)
-      }
-    })
-
-    // 按時間戳排序，然後計算每小時的增量
-    const result = []
-    const sortedKeys = Object.keys(grouped).sort((a, b) => {
-      return grouped[a].timestamp - grouped[b].timestamp
-    })
-
-    sortedKeys.forEach(key => {
-      const values = grouped[key].values
-      if (values.length > 0) {
-        const increment = values[values.length - 1] - values[0]
-        // 只顯示小時部分（去掉日期）
-        const timeOnly = key.split(' ')[1]
-        result.push({
-          time: timeOnly,
-          value: Math.max(0, increment)
-        })
-      }
-    })
-
-    return result
-  } else if (timeRange.value === 'year') {
-    // 年模式：計算月與月之間的增量
-    const monthlyData = new Map()
-
-    // 按時間順序處理，保存每月最後一筆有效數據
-    feeds.forEach(feed => {
-      const carbonValue = parseFloat(feed.field7)
-      if (!carbonValue || isNaN(carbonValue)) {
-        return // 跳過無效數據
-      }
-
-      const feedDate = feed.created_at.split('T')[0] // YYYY-MM-DD
-      const monthKey = feedDate.substring(0, 7) // YYYY-MM
-      const displayKey = monthKey.replace('-', '/') // YYYY/MM
-
-      // 總是保存該月的數據（後面的會覆蓋前面的，確保是最後一筆）
-      monthlyData.set(monthKey, {
-        time: displayKey,
-        value: carbonValue,
-        date: feedDate
-      })
-    })
-
-    // 計算月與月之間的增量
-    const sortedMonths = Array.from(monthlyData.keys()).sort()
-    const monthlyIncrements = new Map()
-    let previousValue = null
-
-    sortedMonths.forEach(monthKey => {
-      const data = monthlyData.get(monthKey)
-      let increment = 0
-
-      if (previousValue !== null) {
-        increment = Math.max(0, data.value - previousValue)
-      }
-
-      // 使用 data.time (YYYY/MM 格式) 作為 key
-      monthlyIncrements.set(data.time, {
-        time: data.time,
-        value: increment,
-        hasValidData: true
-      })
-
-      previousValue = data.value
-    })
-
-    // 生成最近12個月的完整列表
-    const result = []
-    const now = new Date()
-
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      const year = d.getFullYear()
-      const month = d.getMonth() + 1
-      const displayKey = `${year}/${String(month).padStart(2, '0')}` // YYYY/MM
-
-      if (monthlyIncrements.has(displayKey)) {
-        result.push(monthlyIncrements.get(displayKey))
-      } else {
-        // 沒有數據的月份，填充 0
-        result.push({ time: displayKey, value: 0, hasValidData: false })
-      }
-    }
-
-    return result
-  } else {
-    // 週和月模式：現在抓的是原始資料（非 ThingSpeak 的每日平均），
-    // 第一步：先依「當地日期」分組，取每天最後一筆有效讀值
-    // （用當天結束時的累積值計算增量，避免裝置剛開始回報、資料不連續時
-    // 被「當日平均值」拉低，導致跟日模式的增量算法對不起來）
-    const lastValueByDate = new Map()
-
-    feeds.forEach(feed => {
-      const currentValue = parseFloat(feed.field7)
-      if (!currentValue || isNaN(currentValue)) return
-
-      const feedDate = feed.created_at.split('T')[0] // YYYY-MM-DD
-      const timestamp = new Date(feed.created_at)
-      const existing = lastValueByDate.get(feedDate)
-      if (!existing) {
-        lastValueByDate.set(feedDate, { firstValue: currentValue, value: currentValue, timestamp })
-      } else if (timestamp > existing.timestamp) {
-        existing.value = currentValue
-        existing.timestamp = timestamp
-      }
-    })
-
-    // 第二步：依日期順序，計算相鄰兩天「當日最後讀值」的差值。
-    // 若是這段區間裡「第一個有資料的日子」（沒有前一天可比對，例如裝置剛開始回報），
-    // 改用「當天最後讀值 - 當天第一筆讀值」，才不會漏算裝置開始回報那天自己累積的量
-    const dataMap = new Map()
-    let previousValue = null
-
-    Array.from(lastValueByDate.keys()).sort().forEach(feedDate => {
-      const { value: currentValue, firstValue, timestamp } = lastValueByDate.get(feedDate)
-      const dateKey = `${timestamp.getMonth() + 1}/${timestamp.getDate()}`
-
-      const increment = previousValue !== null
-        ? Math.max(0, currentValue - previousValue)
-        : Math.max(0, currentValue - firstValue)
-
-      dataMap.set(feedDate, { time: dateKey, value: increment, hasValidData: true })
-      previousValue = currentValue
-    })
-
-    // 第二步：填補缺失的日期
-    const result = []
-    const now = new Date()
-    let daysToShow = timeRange.value === 'week' ? 7 : 30
-
-    // 生成日期範圍（往前推指定天數）
-    for (let i = daysToShow - 1; i >= 0; i--) {
-      const d = new Date(now)
-      d.setDate(d.getDate() - i)
-      const dateStr = d.toISOString().split('T')[0]
-      const dateKey = `${d.getMonth() + 1}/${d.getDate()}`
-
-      if (dataMap.has(dateStr)) {
-        result.push(dataMap.get(dateStr))
-      } else {
-        // 沒有數據的日期，填充 0
-        result.push({ time: dateKey, value: 0, hasValidData: false })
-      }
-    }
-
-    return result
   }
 }
 
